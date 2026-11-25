@@ -1,0 +1,391 @@
+{
+    "source": "Real results of one Automation Studio query activity (UNION ALL of every variation) on SqlConvFixture in the QA business unit, 2026-11-25.",
+    "fixture": {
+        "name": "SqlConvFixture",
+        "fields": [
+            {
+                "Name": "SubscriberKey",
+                "FieldType": "Text",
+                "MaxLength": 20,
+                "IsPrimaryKey": true,
+                "IsRequired": true
+            },
+            {
+                "Name": "Email",
+                "FieldType": "EmailAddress"
+            },
+            {
+                "Name": "FirstName",
+                "FieldType": "Text",
+                "MaxLength": 50
+            },
+            {
+                "Name": "Country",
+                "FieldType": "Text",
+                "MaxLength": 10
+            },
+            {
+                "Name": "Tier",
+                "FieldType": "Text",
+                "MaxLength": 20
+            },
+            {
+                "Name": "Points",
+                "FieldType": "Number"
+            },
+            {
+                "Name": "Amount",
+                "FieldType": "Decimal",
+                "Precision": 10,
+                "Scale": 2
+            },
+            {
+                "Name": "SignupDate",
+                "FieldType": "Date"
+            },
+            {
+                "Name": "IsActive",
+                "FieldType": "Boolean"
+            },
+            {
+                "Name": "Zip",
+                "FieldType": "Text",
+                "MaxLength": 10
+            },
+            {
+                "Name": "Notes",
+                "FieldType": "Text",
+                "MaxLength": 100
+            }
+        ],
+        "rows": [
+            {
+                "SubscriberKey": "R01",
+                "Email": "anna@example.com",
+                "FirstName": "Anna",
+                "Country": "DE",
+                "Tier": "Gold",
+                "Points": 1200,
+                "Amount": 12.5,
+                "SignupDate": "2023-02-01",
+                "IsActive": true,
+                "Zip": "01067",
+                "Notes": "vip"
+            },
+            {
+                "SubscriberKey": "R02",
+                "Email": "ben@example.com",
+                "FirstName": "Ben",
+                "Country": "US",
+                "Tier": "Silver",
+                "Points": 300,
+                "Amount": 0.99,
+                "SignupDate": "2024-05-10",
+                "IsActive": true,
+                "Zip": "10001",
+                "Notes": "call back"
+            },
+            {
+                "SubscriberKey": "R03",
+                "Email": "carla@example.org",
+                "FirstName": "Carla",
+                "Country": "ES",
+                "Tier": "Gold",
+                "Points": 950,
+                "Amount": 100,
+                "SignupDate": "2024-07-20",
+                "IsActive": false,
+                "Zip": "28001"
+            },
+            {
+                "SubscriberKey": "R04",
+                "Email": "dirk@example.com",
+                "FirstName": "Dirk",
+                "Country": "DE",
+                "Tier": "Bronze",
+                "Points": 40,
+                "Amount": 5,
+                "SignupDate": "2025-01-05",
+                "IsActive": true,
+                "Zip": "80331",
+                "Notes": "50%_off"
+            },
+            {
+                "SubscriberKey": "R05",
+                "Email": "eva@example.com",
+                "FirstName": "Eva",
+                "Country": "de",
+                "Tier": "Gold",
+                "Points": 2100,
+                "Amount": 7.25,
+                "SignupDate": "2025-03-15",
+                "IsActive": true,
+                "Zip": "20095",
+                "Notes": "Gold"
+            },
+            {
+                "SubscriberKey": "R06",
+                "Email": "finn@example.net",
+                "FirstName": "Finn",
+                "Country": "US",
+                "Tier": "Bronze",
+                "Points": 0,
+                "Amount": 0,
+                "SignupDate": "2025-09-30",
+                "IsActive": false,
+                "Zip": "94105",
+                "Notes": ""
+            },
+            {
+                "SubscriberKey": "R07",
+                "Email": "gus@example.de",
+                "FirstName": "Gus",
+                "Country": "FR",
+                "Points": 10,
+                "SignupDate": "2026-01-10",
+                "IsActive": false,
+                "Zip": "75001",
+                "Notes": "a_b"
+            },
+            {
+                "SubscriberKey": "R08",
+                "Email": "hana@EXAMPLE.com",
+                "FirstName": "Hana",
+                "Country": "DE",
+                "Tier": "Gold ",
+                "Points": 500,
+                "Amount": 50.5,
+                "IsActive": true,
+                "Zip": "10115",
+                "Notes": "axb"
+            },
+            {
+                "SubscriberKey": "R09",
+                "Email": "ivan@example.com",
+                "FirstName": "Ivan",
+                "Country": "DE",
+                "Tier": "Silver",
+                "Amount": 1,
+                "SignupDate": "2022-12-31",
+                "IsActive": false,
+                "Zip": "04109",
+                "Notes": "Manager"
+            },
+            {
+                "SubscriberKey": "R10",
+                "Email": "jo@example.com",
+                "FirstName": "Jo",
+                "Country": "ES",
+                "Tier": "Silver",
+                "Points": 500,
+                "Amount": 2,
+                "SignupDate": "2024-12-31",
+                "IsActive": true,
+                "Zip": "08001",
+                "Notes": "regional manager"
+            }
+        ]
+    },
+    "variations": [
+        {
+            "id": "v01",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country = 'DE'",
+            "expected": ["R01", "R04", "R05", "R08", "R09"]
+        },
+        {
+            "id": "v02",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country <> 'DE'",
+            "expected": ["R02", "R03", "R06", "R07", "R10"]
+        },
+        {
+            "id": "v03",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country != 'US'",
+            "expected": ["R01", "R03", "R04", "R05", "R07", "R08", "R09", "R10"]
+        },
+        {
+            "id": "v04",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points > 500",
+            "expected": ["R01", "R03", "R05"]
+        },
+        {
+            "id": "v05",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points >= 500",
+            "expected": ["R01", "R03", "R05", "R08", "R10"]
+        },
+        {
+            "id": "v06",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points < 300",
+            "expected": ["R04", "R06", "R07"]
+        },
+        {
+            "id": "v07",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points <= 300",
+            "expected": ["R02", "R04", "R06", "R07"]
+        },
+        {
+            "id": "v08",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Amount > 7.25",
+            "expected": ["R01", "R03", "R08"]
+        },
+        {
+            "id": "v09",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Email LIKE '%example.com'",
+            "expected": ["R01", "R02", "R04", "R05", "R08", "R09", "R10"]
+        },
+        {
+            "id": "v10",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Email LIKE 'a%'",
+            "expected": ["R01"]
+        },
+        {
+            "id": "v11",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Notes LIKE '%manager%'",
+            "expected": ["R09", "R10"]
+        },
+        {
+            "id": "v12",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Notes LIKE 'a_b'",
+            "expected": ["R07", "R08"]
+        },
+        {
+            "id": "v13",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Notes LIKE '%[%]%'",
+            "expected": ["R04"]
+        },
+        {
+            "id": "v14",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country IN ('DE', 'ES')",
+            "expected": ["R01", "R03", "R04", "R05", "R08", "R09", "R10"]
+        },
+        {
+            "id": "v15",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country NOT IN ('DE', 'ES')",
+            "expected": ["R02", "R06", "R07"]
+        },
+        {
+            "id": "v16",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points BETWEEN 300 AND 1200",
+            "expected": ["R01", "R02", "R03", "R08", "R10"]
+        },
+        {
+            "id": "v17",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Tier IS NULL",
+            "expected": ["R07"]
+        },
+        {
+            "id": "v18",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Tier IS NOT NULL",
+            "expected": ["R01", "R02", "R03", "R04", "R05", "R06", "R08", "R09", "R10"]
+        },
+        {
+            "id": "v19",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points IS NULL",
+            "expected": ["R09"]
+        },
+        {
+            "id": "v20",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE SignupDate IS NULL",
+            "expected": ["R08"]
+        },
+        {
+            "id": "v21",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE SignupDate > '2024-12-31'",
+            "expected": ["R04", "R05", "R06", "R07"]
+        },
+        {
+            "id": "v22",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE SignupDate >= '2024-12-31'",
+            "expected": ["R04", "R05", "R06", "R07", "R10"]
+        },
+        {
+            "id": "v23",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE IsActive = 1",
+            "expected": ["R01", "R02", "R04", "R05", "R08", "R10"]
+        },
+        {
+            "id": "v24",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE IsActive = 0",
+            "expected": ["R03", "R06", "R07", "R09"]
+        },
+        {
+            "id": "v25",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Tier = 'Gold'",
+            "expected": ["R01", "R03", "R05", "R08"]
+        },
+        {
+            "id": "v26",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Tier = 'gold'",
+            "expected": ["R01", "R03", "R05", "R08"]
+        },
+        {
+            "id": "v27",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Tier <> 'Gold'",
+            "expected": ["R02", "R04", "R06", "R09", "R10"]
+        },
+        {
+            "id": "v28",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Notes = ''",
+            "expected": ["R06"]
+        },
+        {
+            "id": "v29",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Zip = '01067'",
+            "expected": ["R01"]
+        },
+        {
+            "id": "v30",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Zip < '10000'",
+            "expected": ["R01", "R09", "R10"]
+        },
+        {
+            "id": "v31",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country = 'DE' AND Points >= 500",
+            "expected": ["R01", "R05", "R08"]
+        },
+        {
+            "id": "v32",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country = 'US' OR Tier = 'Gold'",
+            "expected": ["R01", "R02", "R03", "R05", "R06", "R08"]
+        },
+        {
+            "id": "v33",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country IN ('DE', 'ES') AND (Points >= 500 OR Tier = 'Gold')",
+            "expected": ["R01", "R03", "R05", "R08", "R10"]
+        },
+        {
+            "id": "v34",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country = 'DE' AND Points > 100 OR Country = 'ES' AND IsActive = 1",
+            "expected": ["R01", "R05", "R08", "R10"]
+        },
+        {
+            "id": "v35",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE (Country = 'DE' OR Country = 'FR') AND (Tier IS NULL OR Points < 100) AND IsActive = 0",
+            "expected": ["R07"]
+        },
+        {
+            "id": "v36",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Email LIKE '%example.com' AND Points NOT IN (0, 10)",
+            "expected": ["R01", "R02", "R04", "R05", "R08", "R10"]
+        },
+        {
+            "id": "v37",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Points <> 500",
+            "expected": ["R01", "R02", "R03", "R04", "R05", "R06", "R07"]
+        },
+        {
+            "id": "v38",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Country NOT IN ('DE') AND Points BETWEEN 0 AND 400",
+            "expected": ["R02", "R06", "R07"]
+        },
+        {
+            "id": "v39",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE FirstName = 'anna'",
+            "expected": ["R01"]
+        },
+        {
+            "id": "v40",
+            "sql": "SELECT SubscriberKey FROM [SqlConvFixture] WHERE Amount BETWEEN 1 AND 12.5",
+            "expected": ["R01", "R04", "R05", "R09", "R10"]
+        }
+    ]
+}
