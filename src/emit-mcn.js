@@ -10,7 +10,7 @@
 
 import { CodeWriter, collectClauses, conditionsOf, isContainsPattern } from './clauses.js';
 import { ampString, emitAmpscriptLookupRows, writeAmpLoop } from './emit-mce.js';
-import { LOOKUP_FIRST_ROW_ONLY, TOP_DROPPED, createMessage } from './messages.js';
+import { LOOKUP_FIRST_ROW_ONLY, MO_ONE_MATCH, TOP_DROPPED, createMessage } from './messages.js';
 
 /**
  * @typedef {import('./sql-parser.js').SelectAst} SelectAst
@@ -19,7 +19,6 @@ import { LOOKUP_FIRST_ROW_ONLY, TOP_DROPPED, createMessage } from './messages.js
 
 /**
  * @typedef {object} NextEmitOptions
- * @property {string} [moKeyField] key field of the marketing object (Handlebars MO filter)
  * @property {string} [sourceText] the SQL text the AST came from (locates TOP for messages)
  */
 
@@ -52,7 +51,7 @@ export const NEXT_RULES = Object.freeze({
     // CRM where operators (SQL → Next); `<>` is written as `!=` (only `!=` was probed)
     crmOperators: {
         value: Object.freeze({ '=': '=', '<>': '!=', '<': '<', '<=': '<=', '>': '>', '>=': '>=' }),
-        db: rows(QUERY, 5, 6, 7, 8, 9, 10, 11, 12, 13),
+        db: rows(QUERY, 5, 6, 7, 8, 9, 10, 11, 12, 13, 64),
     },
     // values only as :name placeholders with params=(hash …); literals in where fail
     paramsOnly: { value: true, db: rows(QUERY, 5, 6, 8, 24, 25, 26) },
@@ -76,8 +75,8 @@ export const NEXT_RULES = Object.freeze({
     },
     // number params stay unquoted, also negative and decimal
     numberParams: { value: true, db: rows(QUERY, 5, 46) },
-    // IN / BETWEEN were not probed: error with a rewrite hint
-    crmInBetween: { value: false, db: [] },
+    // IN, NOT IN and NOT (…) fail; BETWEEN was not probed: error with a rewrite hint
+    crmInBetween: { value: false, db: rows(QUERY, 69, 70, 71) },
     // IS NULL / IS NOT NULL were not probed on any Next target
     nullTests: { value: false, db: [] },
     // fields= is required: without it every field is empty
@@ -85,20 +84,28 @@ export const NEXT_RULES = Object.freeze({
     // sortBy="Field ASC|DESC" (one field) orders the result; queryFirst picks by it
     crmSortBy: {
         value: 'one field',
-        db: [...rows(QUERY, 27, 28, 41, 42), ...rows(QUERY_FIRST, 6, 7, 20)],
+        db: [...rows(QUERY, 27, 28, 41, 42, 66), ...rows(QUERY_FIRST, 6, 7, 20)],
     },
     // limit=n caps the result after sorting
     crmLimit: { value: true, db: rows(QUERY, 29, 41, 42) },
     // queryFirst: one value read with get; no match renders empty
     queryFirstGet: { value: true, db: rows(QUERY_FIRST, 5, 8, 20) },
-    // MO query: only an inline filter on the key field (Key__c="v"); where, where + inline,
-    // and no filter fail
-    moInlineKeyOnly: {
+    // MO query: inline filters Field=value on any field (key or not, number or text),
+    // several combine with AND; where, where + inline, and no filter fail
+    moInlineFilters: {
         value: true,
-        db: [...rows(QUERY, 3, 4, 32, 33, 34, 49), ...rows(QUERY_FIRST, 3, 4)],
+        db: [
+            ...rows(QUERY, 3, 4, 32, 33, 34, 49, 50, 51, 52, 53, 54, 55, 57),
+            ...rows(QUERY_FIRST, 3, 4, 21, 22),
+        ],
     },
-    // MO query: limit / sortBy were not probed
-    moLimitSortBy: { value: false, db: [] },
+    // MO query: limit=n works, sortBy fails
+    moLimit: { value: true, db: rows(QUERY, 60) },
+    moSortBy: { value: false, db: [...rows(QUERY, 61), ...rows(QUERY_FIRST, 23)] },
+    // MO: a filter that matches two records returned only one (Handlebars query and LookupRows)
+    moOneMatch: { value: true, db: [...rows(QUERY, 62), ...rows(LOOKUP_ROWS, 15)] },
+    // MO LookupRows: the same field in two pairs uses the second pair (no AND)
+    lookupRowsDistinctFields: { value: true, db: rows(LOOKUP_ROWS, 16) },
     // RetrieveSalesforceObjects operators; `<>` is written as `!=`
     rsoOperators: {
         value: Object.freeze({
@@ -498,12 +505,53 @@ export function emitHandlebarsQueryFirst(ast, options = {}) {
 }
 
 // ------------------------------------------------------------------------------------------
-// Handlebars MO: query with the inline key filter
+// Handlebars MO: query with inline filters
 // ------------------------------------------------------------------------------------------
 
+const MO_QUERY_CAPS = {
+    label: 'A Handlebars query on a marketing object',
+    or: false,
+    ops: Object.freeze({ '=': '=' }),
+    like: false,
+};
+
 /**
- * Emits `{{#each (query type="MO" object="X" Key__c="v")}}` with one `{{Field}}` line per
- * column. The only proven filter is one `=` on the key field given by `options.moKeyField`.
+ * Warns that Next returned one record when a marketing object filter matched two
+ * (NEXT_RULES.moOneMatch).
+ *
+ * @param {SelectAst} ast statement
+ * @returns {import('./messages.js').Message} warning
+ */
+function moOneMatchMessage(ast) {
+    return createMessage(
+        'warning',
+        MO_ONE_MATCH,
+        'In our Next test, a marketing object filter that matched two records returned only one of them. Filter on the key field when every match matters.',
+        ast.where?.loc ?? ast.loc,
+    );
+}
+
+/**
+ * Checks that no field is used in two conditions of a marketing object filter.
+ *
+ * @param {SelectAst} ast statement
+ * @param {string} reason message for the repeated field
+ * @returns {string|null} reason, or null when every field appears once
+ */
+function moRepeatedFieldProblem(ast, reason) {
+    const seen = new Set();
+    for (const { column } of conditionsOf(ast.where)) {
+        if (seen.has(column.toLowerCase())) {
+            return `${reason} (${column}).`;
+        }
+        seen.add(column.toLowerCase());
+    }
+    return null;
+}
+
+/**
+ * Emits `{{#each (query type="MO" object="X" Field="v" …)}}` with one `{{Field}}` line per
+ * column: inline filters on any fields (AND), `limit` for TOP; no sorting (NEXT_RULES.moSortBy).
  *
  * @param {SelectAst} ast statement
  * @param {NextEmitOptions} [options] options
@@ -511,23 +559,19 @@ export function emitHandlebarsQueryFirst(ast, options = {}) {
  */
 export function emitHandlebarsQueryMo(ast, options = {}) {
     const label = 'Handlebars query on a marketing object';
-    const keyField = options.moKeyField?.trim();
-    const where = ast.where;
-    const isKeyFilter =
-        where?.type === 'compare' &&
-        where.op === '=' &&
-        Boolean(keyField) &&
-        where.column.toLowerCase() === keyField.toLowerCase();
     const problem = firstProblem(
         starProblem(ast, label),
         nameProblem(ast),
-        !keyField &&
-            "Enter the marketing object's key field in the settings: Next only filters a marketing object by its key field.",
-        !where &&
-            `A marketing object query needs a filter on its key field (WHERE ${keyField} = 'value'); Next fails without one.`,
-        !isKeyFilter &&
-            `A marketing object query can only filter with one condition, ${keyField} = 'value' (other conditions fail in Next). Use the AMPscript LookupRows output for other exact-value filters.`,
-        sortLimitProblem(ast, label),
+        !ast.where &&
+            "A marketing object query needs at least one filter such as WHERE Field = 'value'; Next fails without one.",
+        ast.where && whereProblem(ast.where, MO_QUERY_CAPS),
+        ast.where &&
+            moRepeatedFieldProblem(
+                ast,
+                'A marketing object query can name each field once, so one field cannot have two conditions',
+            ),
+        ast.orderBy?.length &&
+            `${label} can't sort in Next (sortBy fails), so ORDER BY can't be converted. Remove it and sort in your code.`,
         hbValueProblem(ast),
     );
     if (problem) {
@@ -536,13 +580,18 @@ export function emitHandlebarsQueryMo(ast, options = {}) {
     const { idOf } = collectClauses(ast, options.sourceText);
     const out = new CodeWriter();
     out.write('{{#each (query type="MO" object=').mark('from', hbString(ast.from.name));
-    out.write(' ').mark(idOf.get(where), `${where.column}=${hbValue(where.value)}`);
+    for (const node of conditionsOf(ast.where)) {
+        out.write(' ').mark(idOf.get(node), `${node.column}=${hbValue(node.value)}`);
+    }
+    if (ast.top !== null && ast.top !== undefined) {
+        out.write(' ').mark('top', `limit=${ast.top}`);
+    }
     out.write(')}}\n');
     for (const column of ast.columns) {
         out.write(INDENT).mark(idOf.get(column), `{{${column.name}}}`).write('\n');
     }
     out.write('{{/each}}');
-    return finish(out);
+    return finish(out, [moOneMatchMessage(ast)]);
 }
 
 // ------------------------------------------------------------------------------------------
@@ -635,6 +684,16 @@ export function rsoRepeatedFieldMessage(column) {
     return `RetrieveSalesforceObjects returns no rows in Next when the same field is used in two conditions (${column}). Use ${HANDLEBARS_ALTERNATIVE} instead.`;
 }
 
+/**
+ * Explains why LookupRows can't use one field in two pairs in Next (shared with the reverse
+ * parser; NEXT_RULES.lookupRowsDistinctFields).
+ *
+ * @returns {string} message without the field and the final full stop
+ */
+export function lookupRowsRepeatedFieldMessage() {
+    return 'LookupRows in Next uses only the last pair when the same field appears in two pairs, so the conditions are not combined';
+}
+
 const LOOKUP_ROWS_CAPS = {
     label: 'LookupRows',
     or: false,
@@ -656,13 +715,18 @@ export function emitAmpscriptLookupRowsMo(ast, options = {}) {
         nameProblem(ast),
         !ast.where && "LookupRows needs at least one condition such as WHERE Field = 'value'.",
         ast.where && whereProblem(ast.where, LOOKUP_ROWS_CAPS),
+        ast.where && moRepeatedFieldProblem(ast, lookupRowsRepeatedFieldMessage()),
         sortLimitProblem(ast, 'LookupRows'),
         ampValueProblem(ast),
     );
     if (problem) {
         return problem;
     }
-    return emitAmpscriptLookupRows(ast, { deKey: ast.from.name, sourceText: options.sourceText });
+    const result = emitAmpscriptLookupRows(ast, {
+        deKey: ast.from.name,
+        sourceText: options.sourceText,
+    });
+    return { ...result, messages: [...(result.messages ?? []), moOneMatchMessage(ast)] };
 }
 
 // ------------------------------------------------------------------------------------------

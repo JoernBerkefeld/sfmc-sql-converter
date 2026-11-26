@@ -47,7 +47,6 @@ console.log(back.outputs[0].code);
 | `platform`   | `'mce'`    | `'mce'` (Engagement) or `'mcn'` (Next)                                        |
 | `direction`  | `'toCode'` | `'toCode'` (SQL to code) or `'toSql'` (code to SQL)                           |
 | `dataSource` | `'CRM'`    | Next only: `'CRM'` (Sales Cloud object) or `'MO'` (marketing object)          |
-| `moKeyField` |            | Next only: the marketing object's key field (Handlebars MO query filter)      |
 | `deKey`      | the name   | External key of the data extension. WSProxy and Rows.Retrieve need the key.   |
 | `deName`     |            | `toSql` only: data extension name when the code does not carry it             |
 | `columns`    |            | The column names that `SELECT *` stands for                                   |
@@ -107,10 +106,10 @@ Next mode returns the targets of the chosen `dataSource`. Only what live tests p
 | `handlebars-query`        | CRM         | `{{#each (query type="CRM" … where=":p1 …" params=(hash …))}}` | columns listed; `=`, `<>`, `<`, `<=`, `>`, `>=`, `LIKE '%text%'`, AND, OR, brackets; one ORDER BY |
 | `handlebars-queryfirst`   | CRM         | `{{get (queryFirst type="CRM" …) "Field"}}`                    | as query, exactly one column; returns the first match (TOP 1)                                     |
 | `ampscript-rso`           | CRM         | AMPscript `RetrieveSalesforceObjects` plus a FOR loop          | columns listed; the same operators joined with AND, each field at most once; no TOP / ORDER BY    |
-| `handlebars-query-mo`     | MO          | `{{#each (query type="MO" object="X" Key__c="v")}}`            | `moKeyField` given; WHERE is exactly `Key = value`; no TOP / ORDER BY                             |
-| `ampscript-lookuprows-mo` | MO          | AMPscript `LookupRows` plus a FOR loop                         | `Column = 'value'` joined with AND; no TOP / ORDER BY                                             |
+| `handlebars-query-mo`     | MO          | `{{#each (query type="MO" object="X" Field__c="v" …)}}`        | `Column = value` joined with AND, each field once; TOP becomes `limit`; no ORDER BY               |
+| `ampscript-lookuprows-mo` | MO          | AMPscript `LookupRows` plus a FOR loop                         | `Column = 'value'` joined with AND, each field once; no TOP / ORDER BY                            |
 
-Values always go into `params` (literals in `where` fail in Next); `<>` is written as `!=`. Next matches LIKE as "contains", so only `'%text%'` converts. IN, BETWEEN and IS NULL are not supported in Next.
+Values always go into `params` (literals in `where` fail in Next); `<>` is written as `!=`. Next matches LIKE as "contains", so only `'%text%'` converts. IN, NOT IN, NOT (…), BETWEEN and IS NULL are not supported in Next. On a marketing object, Next returned only one record in a test where the filter matched two, so both marketing object targets carry the warning `MO_ONE_MATCH`; filter on the key field when every match matters.
 
 ## Rewrites and dropped clauses
 

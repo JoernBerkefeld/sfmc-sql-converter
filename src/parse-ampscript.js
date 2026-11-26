@@ -6,7 +6,7 @@
  */
 
 import { nextLikeInner, nextLikeWildcardMessage } from './clauses.js';
-import { rsoRepeatedFieldMessage } from './emit-mcn.js';
+import { lookupRowsRepeatedFieldMessage, rsoRepeatedFieldMessage } from './emit-mcn.js';
 import { SYNTAX_ERROR } from './messages.js';
 import {
     ARGUMENT_COUNT,
@@ -205,14 +205,26 @@ function requireString(context, literal, what) {
  *
  * @param {object} context parse context
  * @param {AmpLiteral[]} pairs alternating column names and values
+ * @param {boolean} [isNext] true for Marketing Cloud Next (a repeated field fails)
  * @returns {object} expression node
  */
-function readPairs(context, pairs) {
+function readPairs(context, pairs, isNext = false) {
     const conditions = [];
+    const seen = new Set();
     for (let index = 0; index < pairs.length; index += 2) {
         const columnLiteral = pairs[index];
         const valueLiteral = pairs[index + 1];
         const column = requireString(context, columnLiteral, 'Each column name');
+        if (isNext && seen.has(column.toLowerCase())) {
+            fail(
+                context,
+                INVALID_FILTER,
+                `${lookupRowsRepeatedFieldMessage()} (${column}).`,
+                columnLiteral.start,
+                columnLiteral.end,
+            );
+        }
+        seen.add(column.toLowerCase());
         conditions.push({
             type: 'compare',
             op: '=',
@@ -542,7 +554,7 @@ function parseProgram(context, meta, isNext) {
         top,
         columns,
         from: { name, loc: makeLoc(context, args[0].start, args[0].end) },
-        where: readPairs(context, pairs),
+        where: readPairs(context, pairs, isNext),
         orderBy,
         loc: callLoc,
     };

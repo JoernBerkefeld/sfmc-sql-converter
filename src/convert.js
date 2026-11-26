@@ -42,8 +42,6 @@ import { parseSql } from './sql-parser.js';
  * @property {string[]} [columns] the columns `SELECT *` stands for
  * @property {'CRM'|'MO'} [dataSource] Next data source: Sales Cloud object (default) or
  * marketing object
- * @property {string} [moKeyField] Next: key field of the marketing object (the only field a
- * Handlebars marketing object query can filter on)
  * @property {{fields: {name: string}[]}} [schema] data extension fields
  * @property {{rowsAsObjects?: boolean, paging?: boolean}} [output] WSProxy output options
  */
@@ -214,7 +212,7 @@ function convertToCode(input, options) {
         };
     }
     if (options.platform === 'mcn') {
-        const emitOptions = { moKeyField: options.moKeyField, sourceText: input };
+        const emitOptions = { sourceText: input };
         return { messages, ...emitAll(ast, input, targets, emitOptions, options) };
     }
     if (!options.deKey) {

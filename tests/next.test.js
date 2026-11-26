@@ -13,7 +13,8 @@ import {
     printSql,
 } from '../src/index.js';
 
-const MO = { dataSource: 'MO', moKeyField: 'CouponCode__c' };
+const MO = { dataSource: 'MO' };
+const NUMKEY = 'zzprobenumkey__mo';
 const COUPONS = 'zzprobecoupons__mo';
 
 /**
@@ -101,7 +102,7 @@ const DB_ROW_TESTS = {
     [`${QUERY}#checklist[4]`]: () =>
         assert.match(
             unavailable(`SELECT CouponCode__c FROM ${COUPONS}`, qmo, MO),
-            /needs a filter on its key field/,
+            /needs at least one filter/,
         ),
     [`${QUERY}#checklist[5]`]: () =>
         assert.match(
@@ -215,10 +216,13 @@ const DB_ROW_TESTS = {
             /where=|params=/,
         ),
     [`${QUERY}#checklist[33]`]: () =>
-        unavailable(
-            `SELECT CouponCode__c FROM ${COUPONS} WHERE CouponCode__c = 'PROBE0001' AND IsClaimed__c = 'false'`,
-            qmo,
-            MO,
+        assert.doesNotMatch(
+            code(
+                `SELECT CouponCode__c FROM ${COUPONS} WHERE CouponCode__c = 'PROBE0001' AND IsClaimed__c = 'false'`,
+                qmo,
+                MO,
+            ),
+            /where=/,
         ),
     [`${QUERY}#checklist[34]`]: () =>
         unavailable(
@@ -525,6 +529,136 @@ const DB_ROW_TESTS = {
         assert.equal(hbString("O'Brien"), `"O'Brien"`);
         assert.equal(hbString(String.raw`back\slash`), String.raw`"back\slash"`);
     },
+    [`${QUERY}#checklist[50]`]: () =>
+        assert.match(
+            code(`SELECT CouponNo__c, Label__c FROM ${NUMKEY} WHERE CouponNo__c = 7`, qmo, MO),
+            /\(query type="MO" object="zzprobenumkey__mo" CouponNo__c=7\)/,
+        ),
+    [`${QUERY}#checklist[51]`]: () =>
+        assert.match(
+            code(`SELECT Label__c FROM ${NUMKEY} WHERE CouponNo__c = '7'`, qmo, MO),
+            /CouponNo__c="7"\)/,
+        ),
+    [`${QUERY}#checklist[52]`]: () =>
+        assert.match(
+            code(`SELECT Label__c FROM ${NUMKEY} WHERE CouponNo__c = 99`, qmo, MO),
+            /\{\{#each \(query/,
+        ),
+    [`${QUERY}#checklist[53]`]: () =>
+        assert.match(
+            code(`SELECT Label__c FROM ${NUMKEY} WHERE Points__c = 7`, qmo, MO),
+            /object="zzprobenumkey__mo" Points__c=7\)/,
+        ),
+    [`${QUERY}#checklist[54]`]: () =>
+        assert.match(
+            code(
+                `SELECT Label__c FROM ${NUMKEY} WHERE CouponNo__c = 7 AND Points__c = 70`,
+                qmo,
+                MO,
+            ),
+            /CouponNo__c=7 Points__c=70\)/,
+        ),
+    [`${QUERY}#checklist[55]`]: () =>
+        assert.match(
+            code(`SELECT CouponNo__c FROM ${NUMKEY} WHERE Label__c = 'twelve'`, qmo, MO),
+            /Label__c="twelve"\)/,
+        ),
+    [`${QUERY}#checklist[57]`]: () =>
+        assert.match(
+            code(`SELECT CouponNo__c FROM ${NUMKEY} WHERE Points__c = 80.0`, qmo, MO),
+            /Points__c=80\.0\)/,
+        ),
+    [`${QUERY}#checklist[60]`]: () =>
+        assert.match(
+            code(`SELECT TOP 1 Label__c FROM ${NUMKEY} WHERE Label__c = 'group'`, qmo, MO),
+            /Label__c="group" limit=1\)/,
+        ),
+    [`${QUERY}#checklist[61]`]: () =>
+        assert.match(
+            unavailable(
+                `SELECT CouponNo__c FROM ${NUMKEY} WHERE Label__c = 'group' ORDER BY Points__c DESC`,
+                qmo,
+                MO,
+            ),
+            /can't sort/,
+        ),
+    [`${QUERY}#checklist[62]`]: () =>
+        assert.ok(
+            output(
+                `SELECT CouponNo__c FROM ${NUMKEY} WHERE Label__c = 'group'`,
+                qmo,
+                MO,
+            ).messages.some((message) => message.code === MESSAGE_CODES.MO_ONE_MATCH),
+        ),
+    [`${QUERY}#checklist[64]`]: () =>
+        assert.match(code(`${CONTACT} WHERE LastName <> 'Chopra'`, q), /LastName != :p1/),
+    [`${QUERY}#checklist[66]`]: () =>
+        assert.ok(output(`${CONTACT} ORDER BY LastName, FirstName`, q).unavailable),
+    [`${QUERY}#checklist[69]`]: () =>
+        assert.match(
+            unavailable(`${CONTACT} WHERE LastName IN ('Brown', 'Blau')`, q),
+            /IN is not supported/,
+        ),
+    [`${QUERY}#checklist[70]`]: () =>
+        assert.match(
+            unavailable(`${CONTACT} WHERE LastName NOT IN ('Brown', 'Blau')`, q),
+            /NOT IN is not supported/,
+        ),
+    [`${QUERY}#checklist[71]`]: () =>
+        assert.ok(
+            convert(`${CONTACT} WHERE NOT (LastName = 'Chopra')`, {
+                platform: 'mcn',
+            }).outputs.every((item) => item.unavailable !== undefined),
+        ),
+    [`${QUERY_FIRST}#checklist[21]`]: () => {
+        const back = toSql(
+            `{{get (queryFirst type="MO" object="${NUMKEY}" CouponNo__c=12) "Label__c"}}`,
+        );
+        assert.equal(
+            back.outputs[0].code,
+            `SELECT TOP 1 Label__c\nFROM ${NUMKEY}\nWHERE CouponNo__c = 12`,
+        );
+    },
+    [`${QUERY_FIRST}#checklist[22]`]: () => {
+        const back = toSql(
+            `{{get (queryFirst type="MO" object="${NUMKEY}" Label__c="seventy") "CouponNo__c"}}`,
+        );
+        assert.equal(
+            back.outputs[0].code,
+            `SELECT TOP 1 CouponNo__c\nFROM ${NUMKEY}\nWHERE Label__c = 'seventy'`,
+        );
+    },
+    [`${QUERY_FIRST}#checklist[23]`]: () => {
+        const back = parseHandlebars(
+            `{{get (queryFirst type="MO" object="${NUMKEY}" Label__c="group" sortBy="Points__c DESC") "CouponNo__c"}}`,
+        );
+        assert.equal(back.ast, null);
+        assert.equal(back.messages[0].code, MESSAGE_CODES.INVALID_ARGUMENT);
+    },
+    [`${LOOKUP_ROWS}#checklist[15]`]: () =>
+        assert.ok(
+            output(
+                `SELECT CouponNo__c FROM ${NUMKEY} WHERE Label__c = 'group'`,
+                lrmo,
+                MO,
+            ).messages.some((message) => message.code === MESSAGE_CODES.MO_ONE_MATCH),
+        ),
+    [`${LOOKUP_ROWS}#checklist[16]`]: () => {
+        assert.match(
+            unavailable(
+                `SELECT Label__c FROM ${NUMKEY} WHERE CouponNo__c = 8 AND CouponNo__c = 9`,
+                lrmo,
+                MO,
+            ),
+            /only the last pair/,
+        );
+        const back = parseAmpscript(
+            `%%[ SET @r = LookupRows("${NUMKEY}", "CouponNo__c", "8", "CouponNo__c", "9") ]%%`,
+            { platform: 'mcn' },
+        );
+        assert.equal(back.ast, null);
+        assert.equal(back.messages[0].code, MESSAGE_CODES.INVALID_FILTER);
+    },
 };
 
 /**
@@ -679,18 +813,17 @@ describe('Next targets', () => {
         );
     });
 
-    it('a marketing object query needs moKeyField and no TOP / ORDER BY', () => {
-        const sql = `SELECT CouponCode__c FROM ${COUPONS} WHERE CouponCode__c = 'PROBE0001'`;
-        assert.match(unavailable(sql, qmo, { dataSource: 'MO' }), /key field in the settings/);
+    it('a marketing object query filters on any fields with AND, limit, no OR / ORDER BY', () => {
         assert.match(
-            unavailable(
-                `SELECT TOP 3 CouponCode__c FROM ${COUPONS} WHERE CouponCode__c = 'x'`,
-                qmo,
-                MO,
-            ),
-            /TOP/,
+            code(`SELECT TOP 3 CouponCode__c FROM ${COUPONS} WHERE CouponCode__c = 'x'`, qmo, MO),
+            /CouponCode__c="x" limit=3\)/,
         );
-        code(sql, qmo, { dataSource: 'MO', moKeyField: 'couponcode__c' });
+        unavailable(`SELECT CouponCode__c FROM ${COUPONS} WHERE A = 1 OR B = 2`, qmo, MO);
+        unavailable(`SELECT CouponCode__c FROM ${COUPONS} WHERE A > 1`, qmo, MO);
+        assert.match(
+            unavailable(`SELECT CouponCode__c FROM ${COUPONS} WHERE A = 1 AND A = 2`, qmo, MO),
+            /each field once/,
+        );
         assert.match(
             code(`SELECT CouponCode__c FROM ${COUPONS} WHERE CouponCode__c = 7`, qmo, MO),
             /CouponCode__c=7\)/,
@@ -812,8 +945,12 @@ describe('parseHandlebars — errors', () => {
             MESSAGE_CODES.INVALID_ARGUMENT,
         ],
         [
-            `{{#each (query type="MO" object="${COUPONS}" CouponCode__c="x" Other__c="y")}}{{/each}}`,
-            MESSAGE_CODES.INVALID_FILTER,
+            `{{#each (query type="MO" object="${COUPONS}" CouponCode__c="x" sortBy="A ASC")}}{{/each}}`,
+            MESSAGE_CODES.INVALID_ARGUMENT,
+        ],
+        [
+            `{{#each (query type="MO" object="${COUPONS}" CouponCode__c="x" limit="many")}}{{/each}}`,
+            MESSAGE_CODES.INVALID_COUNT,
         ],
         [
             '{{#each (query type="CRM" object="Contact" fields="A" where="A ~ :a" params=(hash a=1))}}{{/each}}',

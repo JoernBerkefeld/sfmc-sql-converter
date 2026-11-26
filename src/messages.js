@@ -86,6 +86,7 @@ export const FROM_NAME_FROM_KEY = 'FROM_NAME_FROM_KEY';
 export const LOOKUP_FIRST_ROW_ONLY = 'LOOKUP_FIRST_ROW_ONLY';
 export const CASE_SENSITIVE_LOOKUP = 'CASE_SENSITIVE_LOOKUP';
 export const LIKE_MATCHES_ANYWHERE = 'LIKE_MATCHES_ANYWHERE';
+export const MO_ONE_MATCH = 'MO_ONE_MATCH';
 
 /**
  * All message codes, keyed by themselves (handy for iteration and lookups).
@@ -159,6 +160,7 @@ export const MESSAGE_CODES = Object.freeze({
     LOOKUP_FIRST_ROW_ONLY,
     CASE_SENSITIVE_LOOKUP,
     LIKE_MATCHES_ANYWHERE,
+    MO_ONE_MATCH,
 });
 
 /**
@@ -185,6 +187,7 @@ export const REVERSE_MESSAGE_CODES = Object.freeze({
     LOOKUP_FIRST_ROW_ONLY,
     CASE_SENSITIVE_LOOKUP,
     LIKE_MATCHES_ANYWHERE,
+    MO_ONE_MATCH,
 });
 
 /**

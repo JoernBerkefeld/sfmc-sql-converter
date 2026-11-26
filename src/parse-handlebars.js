@@ -763,47 +763,70 @@ function readCrm(context, hash, call) {
 }
 
 /**
- * Reads the parameters of a marketing object call: one inline key filter.
+ * Reads the parameters of a marketing object call: inline filters `Field=value` (AND) and an
+ * optional `limit` (not on queryFirst).
  *
  * @param {object} context parse context
  * @param {Map} hash parameters
- * @param {number} callStart start offset of the call
- * @returns {object} WHERE expression (one equals condition)
+ * @param {{isFirst: boolean, start: number}} call call details
+ * @returns {{where: object, top: number|null}} WHERE expression and row limit
  */
-function readMoFilter(context, hash, callStart) {
-    const filters = [];
+function readMoFilter(context, hash, call) {
+    const conditions = [];
+    let top = call.isFirst ? 1 : null;
     for (const [key, entry] of hash) {
         if (key === 'type' || key === 'object') {
+            continue;
+        }
+        if (key === 'limit' && !call.isFirst) {
+            if (entry.value instanceof Map || !/^[1-9]\d*$/.test(entry.value.value)) {
+                fail(
+                    context,
+                    INVALID_COUNT,
+                    'limit must be a whole number of records, e.g. limit=10.',
+                    entry.key.start,
+                    entry.end,
+                );
+            }
+            top = Number(entry.value.value);
             continue;
         }
         if (MO_FORBIDDEN.has(key)) {
             fail(
                 context,
                 INVALID_ARGUMENT,
-                `${key} is not supported on a marketing object in Next. Filter with the key field only, e.g. Key__c="value".`,
+                `${key} is not supported on a marketing object in Next. Filter with inline conditions, e.g. Key__c="value".`,
                 entry.key.start,
                 entry.end,
             );
         }
-        filters.push(entry);
+        conditions.push({
+            type: 'compare',
+            op: '=',
+            column: entry.key.value,
+            value: paramValue(context, entry),
+            loc: makeLoc(context, entry.key.start, entry.end),
+        });
     }
-    if (filters.length !== 1) {
+    if (conditions.length === 0) {
         fail(
             context,
             INVALID_FILTER,
-            'A marketing object query needs exactly one filter on its key field, e.g. Key__c="value".',
-            filters[1]?.key.start ?? callStart,
-            filters[1]?.end ?? callStart,
+            'A marketing object query needs at least one inline filter, e.g. Key__c="value"; Next fails without one.',
+            call.start,
+            call.start,
         );
     }
-    const [entry] = filters;
-    return {
-        type: 'compare',
-        op: '=',
-        column: entry.key.value,
-        value: paramValue(context, entry),
-        loc: makeLoc(context, entry.key.start, entry.end),
-    };
+    let where = conditions[0];
+    for (const condition of conditions.slice(1)) {
+        where = {
+            type: 'and',
+            left: where,
+            right: condition,
+            loc: makeLoc(context, where.loc.start, condition.loc.end),
+        };
+    }
+    return { where, top };
 }
 
 /**
@@ -884,9 +907,8 @@ function parseProgram(context, meta) {
         meta.target = 'handlebars-query-mo';
         parts = {
             columns: call.isFirst ? '*' : bodyFields(context, end),
-            where: readMoFilter(context, hash, call.start),
+            ...readMoFilter(context, hash, call),
             orderBy: [],
-            top: call.isFirst ? 1 : null,
         };
     }
     if (isGet) {
