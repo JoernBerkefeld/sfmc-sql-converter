@@ -84,6 +84,38 @@ const RSO = 'entries/mcn/mcn-ampscript-email-retrievesalesforceobjects.json';
 const LOOKUP_ROWS = 'entries/mcn/mcn-ampscript-email-lookuprows.json';
 const LOOKUP_ORDERED_ROWS = 'entries/mcn/mcn-ampscript-email-lookuporderedrows.json';
 const CONCAT = 'entries/mcn/mcn-handlebars-email-concat.json';
+const DATA_GRAPH = 'entries/mcn/mcn-handlebars-email-datagraph.json';
+const DG = { dataSource: 'DG' };
+const dg = 'handlebars-datagraph';
+const LINKS = 'UnifiedLinkssotIndividualMkt__dlm';
+const DG_EACH = `{{#each (get (get @root "$dataGraph") "${LINKS}")}}`;
+const SOURCE_ID = `SELECT SourceRecordId__c FROM ${LINKS}`;
+
+/**
+ * Returns the data graph code of a query (must be available and round-trip).
+ *
+ * @param {string} sql query
+ * @returns {string} code
+ */
+function dgCode(sql) {
+    return code(sql, dg, DG);
+}
+
+/**
+ * Checks that a text contains a part.
+ *
+ * @param {string} text text
+ * @param {string} part expected part
+ */
+function assertHas(text, part) {
+    assert.ok(
+        text.includes(part),
+        `expected
+${part}
+in
+${text}`,
+    );
+}
 
 /**
  * One check per proven / disproven verification DB row that `NEXT_RULES` cites.
@@ -659,6 +691,86 @@ const DB_ROW_TESTS = {
         assert.equal(back.ast, null);
         assert.equal(back.messages[0].code, MESSAGE_CODES.INVALID_FILTER);
     },
+    // it2 (2026-11-26): data graph, Email Builder preview
+    [`${DATA_GRAPH}#checklist[3]`]: () =>
+        assert.ok(dgCode(`SELECT SourceRecordId__c FROM ${LINKS}`).startsWith(DG_EACH)),
+    [`${DATA_GRAPH}#checklist[19]`]: () =>
+        assertHas(
+            dgCode('SELECT ssot__EmailAddress__c FROM ssot__ContactPointEmail__dlm'),
+            '"$dataGraph") "ssot__ContactPointEmail__dlm")}}\n    {{ssot__EmailAddress__c}}',
+        ),
+    [`${DATA_GRAPH}#checklist[4]`]: () =>
+        assertHas(
+            dgCode(`${SOURCE_ID} WHERE ssot__DataSourceObjectId__c = 'Contact'`),
+            '{{#if (compare ssot__DataSourceObjectId__c "==" "Contact")}}',
+        ),
+    [`${DATA_GRAPH}#checklist[5]`]: () =>
+        assertHas(
+            dgCode(`${SOURCE_ID} WHERE ssot__DataSourceObjectId__c <> 'Contact'`),
+            '(compare ssot__DataSourceObjectId__c "!=" "Contact")',
+        ),
+    [`${DATA_GRAPH}#checklist[6]`]: () =>
+        assertHas(
+            dgCode(
+                `${SOURCE_ID} WHERE ssot__DataSourceObjectId__c = 'Contact' AND SourceRecordId__c = '003aj0000257xPlAAI'`,
+            ),
+            '{{#if (and (compare ssot__DataSourceObjectId__c "==" "Contact") (compare SourceRecordId__c "==" "003aj0000257xPlAAI"))}}',
+        ),
+    [`${DATA_GRAPH}#checklist[7]`]: () =>
+        assertHas(
+            dgCode(
+                `${SOURCE_ID} WHERE ssot__DataSourceObjectId__c = 'Contact' OR ssot__DataSourceObjectId__c = 'Lead'`,
+            ),
+            '{{#if (or (compare ssot__DataSourceObjectId__c "==" "Contact") (compare ssot__DataSourceObjectId__c "==" "Lead"))}}',
+        ),
+    [`${DATA_GRAPH}#checklist[10]`]: () =>
+        assertHas(
+            dgCode(`${SOURCE_ID} WHERE ssot__DataSourceObjectId__c > 'D'`),
+            '(compare ssot__DataSourceObjectId__c ">" "D")',
+        ),
+    [`${DATA_GRAPH}#checklist[9]`]: () => {
+        const item = output(`${SOURCE_ID} WHERE ssot__DataSourceObjectId__c = 'contact'`, dg, DG);
+        const scope = item.messages.find(
+            (message) => message.code === MESSAGE_CODES.DATA_GRAPH_SCOPE,
+        );
+        assert.match(scope.message, /case-sensitive/);
+    },
+    [`${DATA_GRAPH}#checklist[11]`]: () =>
+        assertHas(
+            dgCode(`${SOURCE_ID} ORDER BY SourceRecordId__c`),
+            `(sort (get (get @root "$dataGraph") "${LINKS}") "SourceRecordId__c" "asc" "string")`,
+        ),
+    [`${DATA_GRAPH}#checklist[12]`]: () =>
+        assertHas(
+            dgCode(`${SOURCE_ID} ORDER BY SourceRecordId__c DESC`),
+            '"SourceRecordId__c" "desc" "string")',
+        ),
+    [`${DATA_GRAPH}#checklist[13]`]: () =>
+        assert.ok(
+            dgCode(`SELECT TOP 1 SourceRecordId__c FROM ${LINKS}`).startsWith(
+                `{{#each (slice (get (get @root "$dataGraph") "${LINKS}") 0 1)}}`,
+            ),
+        ),
+    [`${DATA_GRAPH}#checklist[14]`]: () =>
+        assert.ok(
+            dgCode(
+                `SELECT TOP 1 SourceRecordId__c FROM ${LINKS} ORDER BY SourceRecordId__c`,
+            ).startsWith(
+                `{{#each (slice (sort (get (get @root "$dataGraph") "${LINKS}") "SourceRecordId__c" "asc" "string") 0 1)}}`,
+            ),
+        ),
+    [`${DATA_GRAPH}#checklist[17]`]: () =>
+        assert.ok(
+            !dgCode(`${SOURCE_ID} WHERE ssot__DataSourceObjectId__c = 'Contact'`).includes(
+                '(filter ',
+            ),
+        ),
+    [`${DATA_GRAPH}#checklist[18]`]: () => {
+        const back = toSql(
+            `{{#each (filter (get (get @root "$dataGraph") "${LINKS}") "ssot__DataSourceObjectId__c" "==" "Contact")}}{{SourceRecordId__c}}{{/each}}`,
+        );
+        assert.equal(back.messages[0].code, MESSAGE_CODES.INVALID_ARGUMENT);
+    },
 };
 
 /**
@@ -702,6 +814,7 @@ describe('Next targets', () => {
                 ['ampscript-rso', 'CRM'],
                 ['handlebars-query-mo', 'MO'],
                 ['ampscript-lookuprows-mo', 'MO'],
+                ['handlebars-datagraph', 'DG'],
             ],
         );
         for (const target of MCN_TARGETS) {

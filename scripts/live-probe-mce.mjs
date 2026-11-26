@@ -191,6 +191,8 @@ function build(from, to, assetPath) {
     print(`written ${plan.length} target runs for cases ${from}..${to - 1}`);
 }
 
+const SORTS_IN_CODE = new Set(['ssjs-wsproxy', 'ssjs-rows-retrieve', 'ssjs-lookuprows']);
+
 /**
  * Compare a fetched page body with the expected rows.
  *
@@ -211,7 +213,8 @@ function check(outputFile) {
             .split(',')
             .map((key) => key.trim())
             .filter(Boolean);
-        const orderedTarget = target.includes('ordered');
+        // LookupOrderedRows sorts in the call; the SSJS targets sort and cut with orderRows
+        const orderedTarget = target.includes('ordered') || SORTS_IN_CODE.has(target);
         const actual =
             orderedTarget && testCase.ordered ? keys.join(',') : sortText(keys).join(',');
         const expected =

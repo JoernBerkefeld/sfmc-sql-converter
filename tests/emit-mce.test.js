@@ -13,7 +13,7 @@ import {
     parseSql,
     parseSsjs,
 } from '../src/index.js';
-import { ampString, jsString } from '../src/emit-mce.js';
+import { ORDER_ROWS_HELPER, ampString, jsString } from '../src/emit-mce.js';
 
 // the six characters backslash, u, 0, 0, 5, C
 const U005C = ['\\', 'u005C'].join('');
@@ -300,22 +300,126 @@ describe('WSProxy specifics', () => {
         assert.equal(back.ast.from.name, 'Customers');
     });
 
-    it('drops ORDER BY and TOP with warnings located in the SQL', () => {
+    it('sorts and cuts in code, reading sort columns the SELECT does not name', () => {
         const sql = `SELECT TOP 5 SubscriberKey FROM Customers WHERE Country = 'DE' ORDER BY Points DESC, Email`;
         const result = emitSsjsWsproxy(ast(sql), { sourceText: sql });
+        assertValidSsjs(result.code);
         assert.deepEqual(
             result.messages.map((message) => [message.severity, message.code]),
+            [['info', 'FIRST_BATCH_ONLY']],
+        );
+        assert.deepEqual(result.dropped, []);
+        assert.match(result.code, /var cols = \["SubscriberKey", "Points", "Email"\];/);
+        assert.match(result.code, /\/\/ SQL: SELECT SubscriberKey\n/);
+        assert.match(
+            result.code,
+            /rows = orderRows\(rows, \[\["Points", "DESC"\], \["Email", "ASC"\]\], 5\);\n<\/script>$/,
+        );
+        const texts = Object.fromEntries(
+            result.spans.map((span) => [span.clauseId, result.code.slice(span.start, span.end)]),
+        );
+        assert.equal(texts.top, '5');
+        assert.equal(texts['order-0'], '["Points", "DESC"]');
+        const back = parseSsjs(result.code).ast;
+        assert.deepEqual(
+            back.columns.map((column) => column.name),
+            ['SubscriberKey'],
+        );
+        assert.equal(back.top, 5);
+        assert.deepEqual(
+            back.orderBy.map((item) => [item.column, item.direction]),
             [
-                ['warning', 'TOP_DROPPED'],
-                ['warning', 'ORDER_BY_DROPPED'],
-                ['info', 'FIRST_BATCH_ONLY'],
+                ['Points', 'DESC'],
+                ['Email', 'ASC'],
             ],
         );
-        const [top, order] = result.messages;
-        assert.equal(sql.slice(top.column - 1, top.endColumn - 1), 'SELECT TOP 5');
-        assert.equal(sql.slice(order.column - 1, order.endColumn - 1), 'Points DESC, Email');
-        assert.deepEqual(result.dropped, ['top', 'order-0', 'order-1']);
-        assert.ok(result.spans.every((span) => span.clauseId !== 'top'));
+    });
+});
+
+/**
+ * @param {object[]} rows sorted rows
+ * @returns {unknown[]} the K value of each row
+ */
+function keysOf(rows) {
+    return rows.map((row) => row.K);
+}
+
+/**
+ * @param {string} key row key
+ * @param {string} value Score value
+ * @returns {object} a WSProxy-shaped result item
+ */
+function wsproxyItem(key, value) {
+    return { K: key, Properties: [{ Name: 'Score', Value: value }] };
+}
+
+describe('orderRows helper (run in Node)', () => {
+    // eslint-disable-next-line no-new-func -- runs the emitted SSJS helper text in a test only
+    const orderRows = new Function(`${ORDER_ROWS_HELPER}\nreturn orderRows;`)();
+    const keys = keysOf;
+
+    it('empty values first, numbers as numbers, text without case, DESC and tie-break', () => {
+        const rows = [
+            { K: 'a', N: '10', T: 'b' },
+            { K: 'b', N: '9', T: 'B' },
+            { K: 'c', N: '', T: 'a' },
+            { K: 'd', N: null, T: 'c' },
+            { K: 'e', N: '9', T: 'A' },
+        ];
+        assert.deepEqual(keys(orderRows(rows, [['N', 'ASC']], 0)), ['c', 'd', 'b', 'e', 'a']);
+        assert.deepEqual(keys(orderRows(rows, [['N', 'DESC']], 0)).slice(0, 3), ['a', 'b', 'e']);
+        assert.deepEqual(
+            keys(
+                orderRows(
+                    rows,
+                    [
+                        ['N', 'DESC'],
+                        ['T', 'ASC'],
+                    ],
+                    2,
+                ),
+            ),
+            ['a', 'e'],
+        );
+        assert.deepEqual(keys(orderRows(rows, [['t', 'ASC']], 0)), ['c', 'e', 'a', 'b', 'd']);
+        assert.equal(rows[0].K, 'a', 'input left unchanged');
+    });
+
+    it('reads WSProxy items with a Properties array', () => {
+        const rows = [wsproxyItem('x', '2'), wsproxyItem('y', '11'), wsproxyItem('z', '1')];
+        assert.deepEqual(keys(orderRows(rows, [['score', 'DESC']], 0)), ['y', 'x', 'z']);
+    });
+
+    it('a data extension column named Properties is a normal column', () => {
+        const rows = [
+            { K: 'a', Properties: 'x', Score: '2' },
+            { K: 'b', Properties: 'z', Score: '10' },
+            { K: 'c', Properties: 'y', Score: '1' },
+        ];
+        assert.deepEqual(keys(orderRows(rows, [['Score', 'ASC']], 0)), ['c', 'a', 'b']);
+        assert.deepEqual(keys(orderRows(rows, [['Properties', 'DESC']], 0)), ['b', 'c', 'a']);
+    });
+
+    it('names no inner function after an Object.prototype member (live: valueOf never ran)', () => {
+        for (const match of ORDER_ROWS_HELPER.matchAll(/function (\w+)\(/g)) {
+            assert.ok(!Object.getOwnPropertyNames(Object.prototype).includes(match[1]), match[1]);
+        }
+    });
+
+    it('TOP without ORDER BY keeps the first rows; a missing list gives an empty array', () => {
+        assert.deepEqual(keys(orderRows([{ K: 1 }, { K: 2 }, { K: 3 }], [], 2)), [1, 2]);
+        assert.deepEqual(orderRows(null, [['A', 'ASC']], 0), []);
+    });
+});
+
+describe('orderRows read back', () => {
+    it('rejects a malformed orderRows call with its location', () => {
+        const code =
+            'var rows = Platform.Function.LookupRows("X", "B", "c");\nrows = orderRows(rows, [["A", "UP"]], 0);';
+        const result = parseSsjs(code);
+        assert.equal(result.ast, null);
+        assert.equal(result.messages[0].code, 'INVALID_ORDER_BY');
+        assert.equal(result.messages[0].line, 2);
     });
 });
 
@@ -348,18 +452,16 @@ describe('Lookup family', () => {
     const sql = `SELECT TOP 10 SubscriberKey, Email FROM [Customers] WHERE Country = 'DE' AND Tier = 'Gold' ORDER BY Points DESC, Email ASC`;
     const tree = ast(sql);
 
-    it('SSJS LookupRows: name, field / value arrays, column comment; drops TOP and ORDER BY', () => {
+    it('SSJS LookupRows: name, field / value arrays, column comment; sorts and cuts in code', () => {
         const result = emitSsjsLookupRows(tree, { sourceText: sql });
         assertValidSsjs(result.code);
         assert.match(result.code, /\/\/ SQL: SELECT SubscriberKey, Email\n/);
         assert.match(
             result.code,
-            /Platform\.Function\.LookupRows\("Customers", \["Country", "Tier"\], \["DE", "Gold"\]\);/,
+            /Platform\.Function\.LookupRows\("Customers", \["Country", "Tier"\], \["DE", "Gold"\]\);\nrows = orderRows\(rows, \[\["Points", "DESC"\], \["Email", "ASC"\]\], 10\);\nvar rowCount = rows \? rows\.length : 0;/,
         );
-        assert.deepEqual(
-            result.messages.map((message) => message.code),
-            ['TOP_DROPPED', 'ORDER_BY_DROPPED'],
-        );
+        assert.deepEqual(result.messages, []);
+        assert.deepEqual(result.dropped, []);
     });
 
     it('SSJS LookupOrderedRows: count from TOP, sort string, nothing dropped', () => {

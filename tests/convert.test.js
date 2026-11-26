@@ -42,9 +42,10 @@ describe('convert() contract — toCode, Engagement', () => {
         const wsproxy = result.outputs[0];
         assert.deepEqual(
             wsproxy.messages.map((message) => message.code),
-            ['TOP_DROPPED', 'ORDER_BY_DROPPED', 'FIRST_BATCH_ONLY'],
+            ['FIRST_BATCH_ONLY'],
         );
-        assert.deepEqual(wsproxy.dropped, ['top', 'order-0']);
+        assert.match(wsproxy.messages[0].message, /Sorting and TOP apply to that batch only/);
+        assert.deepEqual(wsproxy.dropped, []);
         const ordered = result.outputs.find((output) => output.id === 'ssjs-lookuporderedrows');
         assert.deepEqual(ordered.messages, []);
     });
@@ -54,14 +55,19 @@ describe('convert() contract — toCode, Engagement', () => {
         assert.deepEqual(
             forWsproxy.map((entry) => [entry.clauseId, entry.sql, entry.dropped]),
             [
-                ['top', 'SELECT TOP 5', true],
+                ['top', 'SELECT TOP 5', false],
                 ['column-0', 'SubscriberKey', false],
                 ['column-1', 'Email', false],
                 ['from', '[Customers]', false],
                 ['where-0', "Country = 'DE'", false],
                 ['where-1', "Tier = 'Gold'", false],
-                ['order-0', 'Points DESC', true],
+                ['order-0', 'Points DESC', false],
             ],
+        );
+        assert.equal(forWsproxy.find((entry) => entry.clauseId === 'top').code, '5');
+        assert.equal(
+            forWsproxy.find((entry) => entry.clauseId === 'order-0').code,
+            '["Points", "DESC"]',
         );
         const where0 = forWsproxy.find((entry) => entry.clauseId === 'where-0');
         assert.match(where0.code, /Property: "Country"/);
@@ -140,11 +146,16 @@ describe('convert() — Next basics', () => {
             mo.outputs.map((output) => output.id),
             ['handlebars-query-mo', 'ampscript-lookuprows-mo'],
         );
+        const dg = convert('SELECT A FROM X__dlm', { platform: 'mcn', dataSource: 'DG' });
+        assert.deepEqual(
+            dg.outputs.map((output) => output.id),
+            ['handlebars-datagraph'],
+        );
     });
 
     it('rejects an unknown data source', () => {
         assert.throws(
-            () => convert('SELECT A FROM X', { platform: 'mcn', dataSource: 'DG' }),
+            () => convert('SELECT A FROM X', { platform: 'mcn', dataSource: 'DMO' }),
             TypeError,
         );
     });
@@ -212,12 +223,54 @@ describe('convert() round trip (SQL → code → SQL)', () => {
         }
     });
 
-    it('the status note names the dropped clauses', () => {
-        const result = convert('SELECT TOP 2 A FROM X ORDER BY A', { deKey: 'X' });
+    it('the status note names the dropped clauses (AMPscript LookupRows)', () => {
+        const result = convert("SELECT TOP 2 A FROM X WHERE B = 'c' ORDER BY A", { deKey: 'X' });
+        const lookupRows = result.outputs.find((output) => output.id === 'ampscript-lookuprows');
         assert.equal(
-            result.roundTrip.note,
-            'Same query without TOP and ORDER BY, which WSProxy leaves out.',
+            lookupRows.roundTrip.note,
+            'Same query without TOP and ORDER BY, which LookupRows leaves out.',
         );
+    });
+
+    it('SSJS outputs keep TOP and ORDER BY through the round trip', () => {
+        const result = convert("SELECT TOP 2 A FROM X WHERE B = 'c' ORDER BY A DESC, C", {
+            deKey: 'X',
+        });
+        for (const id of ['ssjs-wsproxy', 'ssjs-rows-retrieve', 'ssjs-lookuprows']) {
+            const output = result.outputs.find((item) => item.id === id);
+            assert.deepEqual(output.dropped, [], id);
+            assert.equal(output.roundTrip.ok, true, id);
+            assert.match(output.roundTrip.sql, /SELECT TOP 2 A/, id);
+            assert.match(output.roundTrip.sql, /ORDER BY A DESC, C ASC/, id);
+            assert.ok(
+                output.messages.every(
+                    (message) => !['TOP_DROPPED', 'ORDER_BY_DROPPED'].includes(message.code),
+                ),
+                id,
+            );
+        }
+    });
+
+    it('SSJS: ORDER BY without TOP and TOP without ORDER BY', () => {
+        const sorted = convert("SELECT A FROM X WHERE B = 'c' ORDER BY A", { deKey: 'X' });
+        const cut = convert("SELECT TOP 3 A FROM X WHERE B = 'c'", { deKey: 'X' });
+        for (const id of ['ssjs-wsproxy', 'ssjs-rows-retrieve', 'ssjs-lookuprows']) {
+            const sortedOut = sorted.outputs.find((item) => item.id === id);
+            assert.match(sortedOut.code, /rows = orderRows\(rows, \[\["A", "ASC"\]\], 0\);/, id);
+            assert.equal(sortedOut.roundTrip.ok, true, id);
+            const cutOut = cut.outputs.find((item) => item.id === id);
+            assert.match(cutOut.code, /rows = orderRows\(rows, \[\], 3\);/, id);
+            assert.equal(cutOut.roundTrip.ok, true, id);
+        }
+    });
+
+    it('SSJS: no orderRows helper without ORDER BY and TOP', () => {
+        const result = convert("SELECT A FROM X WHERE B = 'c'", { deKey: 'X' });
+        for (const output of result.outputs) {
+            if (output.code) {
+                assert.doesNotMatch(output.code, /orderRows/, output.id);
+            }
+        }
     });
 });
 
