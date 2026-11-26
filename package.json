@@ -1,13 +1,15 @@
 {
     "name": "sfmc-sql-converter",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Converts SQL SELECT queries to Salesforce Marketing Cloud lookup code (SSJS, AMPscript) and back",
     "type": "module",
     "main": "src/index.js",
     "exports": {
         ".": "./src/index.js"
     },
-    "files": ["src"],
+    "files": [
+        "src"
+    ],
     "repository": {
         "type": "git",
         "url": "git+https://github.com/JoernBerkefeld/sfmc-sql-converter.git"
@@ -17,7 +19,15 @@
     },
     "homepage": "https://github.com/JoernBerkefeld/sfmc-sql-converter#readme",
     "author": "Joern Berkefeld <joern.berkefeld@gmail.com>",
-    "keywords": ["sql", "sfmc", "marketing-cloud", "ssjs", "ampscript", "wsproxy", "handlebars"],
+    "keywords": [
+        "sql",
+        "sfmc",
+        "marketing-cloud",
+        "ssjs",
+        "ampscript",
+        "wsproxy",
+        "handlebars"
+    ],
     "license": "MIT",
     "scripts": {
         "test": "node --test tests/*.test.js",
@@ -31,7 +41,9 @@
         "node": ">=22.0.0"
     },
     "lint-staged": {
-        "*.{js,mjs,cjs}": ["eslint --fix"]
+        "*.{js,mjs,cjs}": [
+            "eslint --fix"
+        ]
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
