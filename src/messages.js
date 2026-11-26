@@ -48,10 +48,12 @@ export const UNSUPPORTED_NOT_CONDITION = 'UNSUPPORTED_NOT_CONDITION';
 export const UNSUPPORTED_STAR_WITH_COLUMNS = 'UNSUPPORTED_STAR_WITH_COLUMNS';
 export const UNSUPPORTED_UNION = 'UNSUPPORTED_UNION';
 export const UNSUPPORTED_MULTIPLE_STATEMENTS = 'UNSUPPORTED_MULTIPLE_STATEMENTS';
+export const UNSUPPORTED_OFFSET_FETCH = 'UNSUPPORTED_OFFSET_FETCH';
 
 // --- warnings / info ------------------------------------------------------------------------
 export const SYSTEM_DATA_VIEW = 'SYSTEM_DATA_VIEW';
 export const TABLE_HINT_IGNORED = 'TABLE_HINT_IGNORED';
+export const NULL_FALLBACK_REWRITTEN = 'NULL_FALLBACK_REWRITTEN';
 
 // --- emitters / convert() -------------------------------------------------------------------
 export const ORDER_BY_DROPPED = 'ORDER_BY_DROPPED';
@@ -62,6 +64,7 @@ export const LIKE_CHECKED_IN_SCRIPT = 'LIKE_CHECKED_IN_SCRIPT';
 export const EMPTY_STRING_AS_SPACE = 'EMPTY_STRING_AS_SPACE';
 export const TOP_ABOVE_LOOKUP_LIMIT = 'TOP_ABOVE_LOOKUP_LIMIT';
 export const FIRST_BATCH_ONLY = 'FIRST_BATCH_ONLY';
+export const ORDER_BY_NEEDS_TOP = 'ORDER_BY_NEEDS_TOP';
 
 // --- reverse parsers (code to SQL) ------------------------------------------------------
 export const NO_LOOKUP_FOUND = 'NO_LOOKUP_FOUND';
@@ -124,8 +127,10 @@ export const MESSAGE_CODES = Object.freeze({
     UNSUPPORTED_STAR_WITH_COLUMNS,
     UNSUPPORTED_UNION,
     UNSUPPORTED_MULTIPLE_STATEMENTS,
+    UNSUPPORTED_OFFSET_FETCH,
     SYSTEM_DATA_VIEW,
     TABLE_HINT_IGNORED,
+    NULL_FALLBACK_REWRITTEN,
     ORDER_BY_DROPPED,
     TOP_DROPPED,
     DE_KEY_ASSUMED,
@@ -134,6 +139,7 @@ export const MESSAGE_CODES = Object.freeze({
     EMPTY_STRING_AS_SPACE,
     TOP_ABOVE_LOOKUP_LIMIT,
     FIRST_BATCH_ONLY,
+    ORDER_BY_NEEDS_TOP,
     NO_LOOKUP_FOUND,
     ARGUMENT_COUNT,
     INVALID_ARGUMENT,

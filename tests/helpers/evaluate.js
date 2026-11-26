@@ -9,33 +9,11 @@
  * - Number / Decimal / Boolean / Date columns compare by value.
  */
 
-const NUMERIC_TYPES = new Set(['Number', 'Decimal']);
-// one LIKE token: %, _, a character set such as [%] / [^a-c], or any single character
-const LIKE_TOKEN = /%|_|\[\^?[^\]]+\]|[\s\S]/g;
+import { sqlLike } from '../../src/like.js';
 
-/**
- * Converts a LIKE pattern into a regular expression.
- *
- * @param {string} pattern LIKE pattern
- * @returns {RegExp} case-insensitive, anchored expression
- */
-export function likeToRegExp(pattern) {
-    const source = pattern.replaceAll(LIKE_TOKEN, (token) => {
-        if (token === '%') {
-            return String.raw`[\s\S]*`;
-        }
-        if (token === '_') {
-            return String.raw`[\s\S]`;
-        }
-        if (token.length > 2 && token.startsWith('[')) {
-            const isNegated = token[1] === '^';
-            const body = token.slice(isNegated ? 2 : 1, -1).replaceAll(/[\\^]/g, String.raw`\$&`);
-            return `[${isNegated ? '^' : ''}${body}]`;
-        }
-        return token.replaceAll(/[.*+?^${}()|[\]\\/]/g, String.raw`\$&`);
-    });
-    return new RegExp(`^${source}$`, 'i');
-}
+export { likeToRegExp } from '../../src/like.js';
+
+const NUMERIC_TYPES = new Set(['Number', 'Decimal']);
 
 /**
  * Builds a case-insensitive field → type lookup.
@@ -143,10 +121,7 @@ function matches(expr, row, types) {
         }
         case 'like': {
             // SQL ignores trailing spaces of the matched value
-            return (
-                value !== null &&
-                likeToRegExp(expr.pattern.value).test(String(value).replace(/ +$/, ''))
-            );
+            return value !== null && sqlLike(value, expr.pattern.value);
         }
         case 'in': {
             if (value === null) {

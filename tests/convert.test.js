@@ -125,32 +125,52 @@ describe('convert() contract — toCode, Engagement', () => {
     });
 });
 
-describe('convert() — Next is pending', () => {
-    it('toCode returns every Next output unavailable', () => {
-        const result = convert("SELECT A FROM X WHERE B = '1'", { platform: 'mcn' });
+describe('convert() — Next basics', () => {
+    it('toCode returns the targets of the chosen data source (CRM by default)', () => {
+        const crm = convert("SELECT A FROM X WHERE B = '1'", { platform: 'mcn' });
         assert.deepEqual(
-            result.outputs.map((output) => [output.id, output.language, output.unavailable]),
-            MCN_TARGETS.map((target) => [
+            crm.outputs.map((output) => [output.id, output.language]),
+            MCN_TARGETS.filter((target) => target.dataSource === 'CRM').map((target) => [
                 target.id,
                 target.language,
-                'Next targets are pending live tests.',
             ]),
         );
-        assert.deepEqual(result.clauseMap, []);
-        assert.equal(result.roundTrip.ok, false);
+        const mo = convert("SELECT A FROM X WHERE B = '1'", { platform: 'mcn', dataSource: 'MO' });
+        assert.deepEqual(
+            mo.outputs.map((output) => output.id),
+            ['handlebars-query-mo', 'ampscript-lookuprows-mo'],
+        );
     });
 
-    it('still reports parse errors', () => {
+    it('rejects an unknown data source', () => {
+        assert.throws(
+            () => convert('SELECT A FROM X', { platform: 'mcn', dataSource: 'DG' }),
+            TypeError,
+        );
+    });
+
+    it('still reports parse errors and returns every output unavailable', () => {
         const result = convert('SELECT FROM', { platform: 'mcn' });
         assert.equal(result.messages[0].severity, 'error');
+        assert.ok(result.outputs.every((output) => output.unavailable));
     });
 
-    it('toSql returns the sql output unavailable', () => {
-        const result = convert('var x = 1;', { platform: 'mcn', direction: 'toSql' });
-        assert.deepEqual(
-            result.outputs.map((output) => [output.id, output.unavailable]),
-            [['sql', 'Next targets are pending live tests.']],
+    it('toSql on Next adds no Query Activity note for sortBy without limit', () => {
+        const result = convert(
+            '{{#each (query type="CRM" object="Contact" fields="LastName" sortBy="LastName ASC")}}{{LastName}}{{/each}}',
+            { platform: 'mcn', direction: 'toSql' },
         );
+        assert.match(result.outputs[0].code, /ORDER BY LastName ASC/);
+        assert.ok(
+            result.messages.every((message) => message.code !== MESSAGE_CODES.ORDER_BY_NEEDS_TOP),
+        );
+    });
+
+    it('toSql reports code it cannot read', () => {
+        const result = convert('var x = 1;', { platform: 'mcn', direction: 'toSql' });
+        assert.equal(result.outputs[0].id, 'sql');
+        assert.ok(result.outputs[0].unavailable);
+        assert.equal(result.messages[0].code, MESSAGE_CODES.NO_LOOKUP_FOUND);
     });
 });
 
@@ -272,5 +292,44 @@ describe('ground truth (real SFMC query-activity results)', () => {
         assert.ok(!likeToRegExp('[^a-c]x').test('bx'));
         assert.ok(likeToRegExp('%.com').test('x.COM'));
         assert.ok(!likeToRegExp('%.com').test('xxcom'));
+    });
+});
+
+/**
+ * SSJS LookupOrderedRows code with the given row count (0 = every row).
+ *
+ * @param {number} count rows to read
+ * @returns {string} code
+ */
+function sorted(count) {
+    return `<script runat="server">\nvar rows = Platform.Function.LookupOrderedRows("SqlConvFixture", ${count}, "Points ASC", ["Country"], ["DE"]);\n</script>`;
+}
+
+describe('convert() toSql: ORDER BY without TOP (query activity, DB mce:sql.query-activity.where-semantics)', () => {
+    it('adds an info message when the printed SQL sorts every row', () => {
+        const result = convert(sorted(0), { direction: 'toSql' });
+        assert.match(result.outputs[0].code, /ORDER BY Points ASC/);
+        assert.doesNotMatch(result.outputs[0].code, /TOP/);
+        const note = result.messages.find(
+            (message) => message.code === MESSAGE_CODES.ORDER_BY_NEEDS_TOP,
+        );
+        assert.equal(note?.severity, 'info');
+        assert.equal(result.roundTrip.ok, true);
+    });
+
+    it('adds nothing when the code limits the rows (TOP)', () => {
+        const result = convert(sorted(5), { direction: 'toSql' });
+        assert.match(result.outputs[0].code, /TOP 5/);
+        assert.deepEqual(result.messages, []);
+    });
+
+    it('adds nothing without ORDER BY', () => {
+        const result = convert(
+            '<script runat="server">\nvar rows = Platform.Function.LookupRows("SqlConvFixture", "Country", "DE");\n</script>',
+            { direction: 'toSql' },
+        );
+        assert.ok(
+            result.messages.every((message) => message.code !== MESSAGE_CODES.ORDER_BY_NEEDS_TOP),
+        );
     });
 });

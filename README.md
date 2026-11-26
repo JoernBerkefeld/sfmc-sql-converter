@@ -42,15 +42,17 @@ console.log(back.outputs[0].code);
 
 `input` is SQL (direction `toCode`) or SSJS / AMPscript (direction `toSql`).
 
-| Option      | Default    | Meaning                                                                       |
-| ----------- | ---------- | ----------------------------------------------------------------------------- |
-| `platform`  | `'mce'`    | `'mce'` (Engagement) or `'mcn'` (Next; all outputs are unavailable for now)   |
-| `direction` | `'toCode'` | `'toCode'` (SQL to code) or `'toSql'` (code to SQL)                           |
-| `deKey`     | the name   | External key of the data extension. WSProxy and Rows.Retrieve need the key.   |
-| `deName`    |            | `toSql` only: data extension name when the code does not carry it             |
-| `columns`   |            | The column names that `SELECT *` stands for                                   |
-| `schema`    |            | `{ fields: [{ name }] }`, used like `columns` when `columns` is not given     |
-| `output`    |            | WSProxy options: `rowsAsObjects` (default `true`), `paging` (default `false`) |
+| Option       | Default    | Meaning                                                                       |
+| ------------ | ---------- | ----------------------------------------------------------------------------- |
+| `platform`   | `'mce'`    | `'mce'` (Engagement) or `'mcn'` (Next)                                        |
+| `direction`  | `'toCode'` | `'toCode'` (SQL to code) or `'toSql'` (code to SQL)                           |
+| `dataSource` | `'CRM'`    | Next only: `'CRM'` (Sales Cloud object) or `'MO'` (marketing object)          |
+| `moKeyField` |            | Next only: the marketing object's key field (Handlebars MO query filter)      |
+| `deKey`      | the name   | External key of the data extension. WSProxy and Rows.Retrieve need the key.   |
+| `deName`     |            | `toSql` only: data extension name when the code does not carry it             |
+| `columns`    |            | The column names that `SELECT *` stands for                                   |
+| `schema`     |            | `{ fields: [{ name }] }`, used like `columns` when `columns` is not given     |
+| `output`     |            | WSProxy options: `rowsAsObjects` (default `true`), `paging` (default `false`) |
 
 Unknown `platform` or `direction` values throw a `TypeError`. Everything else never throws: problems come back as messages.
 
@@ -96,9 +98,24 @@ When a target can't express the query, its output has `unavailable` with a plain
 
 WSProxy reads one batch (up to 2,500 rows) by default and says so with `FIRST_BATCH_ONLY`. When more rows exist, the code sets `hasMoreRows = true`. With `output.paging` it reads every batch with `props.ContinueRequest = result.RequestID`.
 
-The Next targets (`handlebars-query`, `handlebars-queryfirst`, `ampscript-lookuprows`, `ampscript-retrievesalesforceobjects`) are listed but unavailable until their live tests are done.
+## Targets (Next)
+
+Next mode returns the targets of the chosen `dataSource`. Only what live tests proved is generated (`NEXT_RULES` lists each rule with its test records); everything else is unavailable with a reason.
+
+| Id                        | Data source | Code                                                           | Available when                                                                                    |
+| ------------------------- | ----------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `handlebars-query`        | CRM         | `{{#each (query type="CRM" … where=":p1 …" params=(hash …))}}` | columns listed; `=`, `<>`, `<`, `<=`, `>`, `>=`, `LIKE '%text%'`, AND, OR, brackets; one ORDER BY |
+| `handlebars-queryfirst`   | CRM         | `{{get (queryFirst type="CRM" …) "Field"}}`                    | as query, exactly one column; returns the first match (TOP 1)                                     |
+| `ampscript-rso`           | CRM         | AMPscript `RetrieveSalesforceObjects` plus a FOR loop          | columns listed; the same operators joined with AND, each field at most once; no TOP / ORDER BY    |
+| `handlebars-query-mo`     | MO          | `{{#each (query type="MO" object="X" Key__c="v")}}`            | `moKeyField` given; WHERE is exactly `Key = value`; no TOP / ORDER BY                             |
+| `ampscript-lookuprows-mo` | MO          | AMPscript `LookupRows` plus a FOR loop                         | `Column = 'value'` joined with AND; no TOP / ORDER BY                                             |
+
+Values always go into `params` (literals in `where` fail in Next); `<>` is written as `!=`. Next matches LIKE as "contains", so only `'%text%'` converts. IN, BETWEEN and IS NULL are not supported in Next.
 
 ## Rewrites and dropped clauses
+
+- **ISNULL / COALESCE.** In WHERE, `ISNULL(Column, value) op value` (and COALESCE with two arguments) is converted without the function: `Column op value`, plus `OR Column IS NULL` when the fallback itself matches the condition (`NULL_FALLBACK_REWRITTEN`). This assumes the fallback has the column's type. Reading code back gives this expanded form. Other uses of the functions stay errors.
+- **OFFSET … FETCH** is an error (`UNSUPPORTED_OFFSET_FETCH`); use TOP.
 
 - **LIKE.** The WSProxy and Rows.Retrieve `like` filter always matches anywhere (it wraps the value in `%`). `'%text%'` is sent as is. Any other pattern is sent without its outer `%`, and the generated `sqlLike()` helper then checks the exact pattern on each row. This only works on a pure AND path, so such a LIKE inside OR makes these targets unavailable (`LIKE_CHECKED_IN_SCRIPT`).
 - **Empty text.** The filter rejects an empty value, so `= ''` is sent as a single space `' '`. This finds the same rows, because trailing spaces are ignored when text is compared (`EMPTY_STRING_AS_SPACE`).
@@ -110,43 +127,46 @@ The Next targets (`handlebars-query`, `handlebars-queryfirst`, `ampscript-lookup
 ## Reading code back (`toSql`)
 
 - Reads WSProxy `retrieve`, `DataExtension.Init(…).Rows.Retrieve(…)`, `Platform.Function.LookupRows` / `LookupOrderedRows`, AMPscript `LookupRows`, `LookupOrderedRows`, `Lookup` (also the CS variants), and bare filter objects.
+- Next (`platform: 'mcn'`): Handlebars `query` / `queryFirst` (CRM and MO) and AMPscript `LookupRows` / `RetrieveSalesforceObjects`. Every `:name` in `where` must be defined once in `params`; a literal in `where` is an error. Handlebars keeps the value type: `p1="5"` reads back as `'5'`, `p1=5` as `5`. A LIKE value of plain text that is not `%text%` (e.g. `Ro%`) reads back as `'%Ro%'` with a warning; `_`, `[` or `%` inside the text is an error. These are errors too, as in the forward direction: `sortBy` with more than one field, a `get` field that is not in `fields` (Next renders it empty), and the same field in two `RetrieveSalesforceObjects` conditions.
+- Engagement: when the SQL sorts without TOP, an info message (`ORDER_BY_NEEDS_TOP`) points out that a query activity in Automation Studio rejects ORDER BY without TOP.
 - Variables set to fixed values are resolved. Values only known at run time are errors.
 - A hand-written `like` filter without a `sqlLike()` check reads back as `LIKE '%value%'`, because the filter matches anywhere (`LIKE_MATCHES_ANYWHERE`).
 - A bare filter object does not name its data extension. Pass `deName` to fill it in. Without it, the round trip is skipped (`roundTrip.skipped: true` with a note).
 
 ## Round trip
 
-Every output is read back with the reverse parser and compared with the query. The comparison ignores keyword case, name case, brackets, whitespace, the quotes of plain numbers, and how AND / OR are grouped. It also ignores the clauses the target left out, `IN` ↔ OR chains and `NOT IN` ↔ AND chains where the target writes them that way, and `*` ↔ the column list given in the options.
+Every output is read back with the reverse parser and compared with the query. The comparison ignores keyword case, name case, brackets, whitespace, the quotes of plain numbers, and how AND / OR are grouped. It also ignores the clauses the target left out, `IN` ↔ OR chains and `NOT IN` ↔ AND chains where the target writes them that way, and `*` ↔ the column list given in the options. The Next Handlebars targets keep the quotes of plain numbers apart, because Next compares `'5'` and `5` as different types.
 
 ## Message codes
 
-| Code                                                                                                                                                                                                 | Meaning                                                               |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `EMPTY_INPUT`                                                                                                                                                                                        | Nothing to convert                                                    |
-| `UNEXPECTED_CHARACTER`, `UNTERMINATED_STRING`, `UNTERMINATED_IDENTIFIER`, `UNTERMINATED_COMMENT`, `EMPTY_IDENTIFIER`                                                                                 | The text can't be split into words                                    |
-| `UNSUPPORTED_LINE_SEPARATOR`                                                                                                                                                                         | A name contains the line separator U+2028 or U+2029                   |
-| `SYNTAX_ERROR`, `EXPECTED_SELECT`, `EXPECTED_FROM`, `EXPECTED_IDENTIFIER`, `EXPECTED_OPERATOR`, `EXPECTED_VALUE`, `EXPECTED_STRING`, `MISSING_CLOSING_PAREN`                                         | Something is missing or in the wrong place                            |
-| `INVALID_TOP`                                                                                                                                                                                        | TOP is not a whole number above 0                                     |
-| `LITERAL_ON_LEFT`, `NULL_COMPARISON`                                                                                                                                                                 | Write `Column = value`, and `IS NULL` instead of `= NULL`             |
-| `NESTING_TOO_DEEP`, `INTERNAL_ERROR`                                                                                                                                                                 | The input can't be read                                               |
-| `UNSUPPORTED_*` (JOIN, subquery, GROUP BY, HAVING, aggregate, DISTINCT, function, column comparison, alias, qualified name, NOT LIKE, NOT BETWEEN, NOT, `*` with columns, UNION, several statements) | Not possible with a lookup                                            |
-| `SYSTEM_DATA_VIEW`                                                                                                                                                                                   | System data views can't be read with a lookup                         |
-| `TABLE_HINT_IGNORED`                                                                                                                                                                                 | Table hints such as `WITH (NOLOCK)` are ignored                       |
-| `ORDER_BY_DROPPED`, `TOP_DROPPED`                                                                                                                                                                    | The target leaves the clause out                                      |
-| `FIRST_BATCH_ONLY`                                                                                                                                                                                   | WSProxy without paging reads only the first batch of up to 2,500 rows |
-| `TOP_ABOVE_LOOKUP_LIMIT`                                                                                                                                                                             | TOP asks for more than the 2,000 rows a lookup returns                |
-| `DE_KEY_ASSUMED`                                                                                                                                                                                     | No external key given; the name is used as the key                    |
-| `SELECT_STAR_NEEDS_COLUMNS`                                                                                                                                                                          | WSProxy needs the columns that `*` stands for                         |
-| `LIKE_CHECKED_IN_SCRIPT`                                                                                                                                                                             | The exact LIKE pattern is checked in the script                       |
-| `EMPTY_STRING_AS_SPACE`                                                                                                                                                                              | `''` is sent as a single space                                        |
-| `NO_LOOKUP_FOUND`, `MULTIPLE_LOOKUPS`                                                                                                                                                                | No lookup, or more than one (only the first is converted)             |
-| `ARGUMENT_COUNT`, `INVALID_ARGUMENT`, `INVALID_OBJECT_TYPE`, `INVALID_COUNT`, `INVALID_ORDER_BY`                                                                                                     | A call argument can't be read                                         |
-| `INVALID_FILTER`, `INVALID_FILTER_VALUE`, `INVALID_LOGICAL_OPERATOR`, `UNKNOWN_FILTER_OPERATOR`, `UNSUPPORTED_FILTER_OPERATOR`                                                                       | A filter object can't be read                                         |
-| `UNSUPPORTED_EXPRESSION`, `VARIABLE_VALUE`                                                                                                                                                           | A value is calculated or only known at run time                       |
-| `FROM_UNKNOWN`, `FROM_NAME_FROM_KEY`                                                                                                                                                                 | The data extension name is missing, or the key is used                |
-| `LOOKUP_FIRST_ROW_ONLY`                                                                                                                                                                              | `Lookup` returns the first matching row only                          |
-| `CASE_SENSITIVE_LOOKUP`                                                                                                                                                                              | A CS lookup compares case-sensitively                                 |
-| `LIKE_MATCHES_ANYWHERE`                                                                                                                                                                              | A `like` filter without a check reads back as `'%value%'`             |
+| Code                                                                                                                                                                                                 | Meaning                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `EMPTY_INPUT`                                                                                                                                                                                        | Nothing to convert                                                                  |
+| `UNEXPECTED_CHARACTER`, `UNTERMINATED_STRING`, `UNTERMINATED_IDENTIFIER`, `UNTERMINATED_COMMENT`, `EMPTY_IDENTIFIER`                                                                                 | The text can't be split into words                                                  |
+| `UNSUPPORTED_LINE_SEPARATOR`                                                                                                                                                                         | A name contains the line separator U+2028 or U+2029                                 |
+| `SYNTAX_ERROR`, `EXPECTED_SELECT`, `EXPECTED_FROM`, `EXPECTED_IDENTIFIER`, `EXPECTED_OPERATOR`, `EXPECTED_VALUE`, `EXPECTED_STRING`, `MISSING_CLOSING_PAREN`                                         | Something is missing or in the wrong place                                          |
+| `INVALID_TOP`                                                                                                                                                                                        | TOP is not a whole number above 0                                                   |
+| `LITERAL_ON_LEFT`, `NULL_COMPARISON`                                                                                                                                                                 | Write `Column = value`, and `IS NULL` instead of `= NULL`                           |
+| `NESTING_TOO_DEEP`, `INTERNAL_ERROR`                                                                                                                                                                 | The input can't be read                                                             |
+| `UNSUPPORTED_*` (JOIN, subquery, GROUP BY, HAVING, aggregate, DISTINCT, function, column comparison, alias, qualified name, NOT LIKE, NOT BETWEEN, NOT, `*` with columns, UNION, several statements) | Not possible with a lookup                                                          |
+| `SYSTEM_DATA_VIEW`                                                                                                                                                                                   | System data views can't be read with a lookup                                       |
+| `TABLE_HINT_IGNORED`                                                                                                                                                                                 | Table hints such as `WITH (NOLOCK)` are ignored                                     |
+| `ORDER_BY_DROPPED`, `TOP_DROPPED`                                                                                                                                                                    | The target leaves the clause out                                                    |
+| `FIRST_BATCH_ONLY`                                                                                                                                                                                   | WSProxy without paging reads only the first batch of up to 2,500 rows               |
+| `ORDER_BY_NEEDS_TOP`                                                                                                                                                                                 | Code → SQL on Engagement: the SQL sorts without TOP, which a query activity rejects |
+| `TOP_ABOVE_LOOKUP_LIMIT`                                                                                                                                                                             | TOP asks for more than the 2,000 rows a lookup returns                              |
+| `DE_KEY_ASSUMED`                                                                                                                                                                                     | No external key given; the name is used as the key                                  |
+| `SELECT_STAR_NEEDS_COLUMNS`                                                                                                                                                                          | WSProxy needs the columns that `*` stands for                                       |
+| `LIKE_CHECKED_IN_SCRIPT`                                                                                                                                                                             | The exact LIKE pattern is checked in the script                                     |
+| `EMPTY_STRING_AS_SPACE`                                                                                                                                                                              | `''` is sent as a single space                                                      |
+| `NO_LOOKUP_FOUND`, `MULTIPLE_LOOKUPS`                                                                                                                                                                | No lookup, or more than one (only the first is converted)                           |
+| `ARGUMENT_COUNT`, `INVALID_ARGUMENT`, `INVALID_OBJECT_TYPE`, `INVALID_COUNT`, `INVALID_ORDER_BY`                                                                                                     | A call argument can't be read                                                       |
+| `INVALID_FILTER`, `INVALID_FILTER_VALUE`, `INVALID_LOGICAL_OPERATOR`, `UNKNOWN_FILTER_OPERATOR`, `UNSUPPORTED_FILTER_OPERATOR`                                                                       | A filter object can't be read                                                       |
+| `UNSUPPORTED_EXPRESSION`, `VARIABLE_VALUE`                                                                                                                                                           | A value is calculated or only known at run time                                     |
+| `FROM_UNKNOWN`, `FROM_NAME_FROM_KEY`                                                                                                                                                                 | The data extension name is missing, or the key is used                              |
+| `LOOKUP_FIRST_ROW_ONLY`                                                                                                                                                                              | `Lookup` returns the first matching row only                                        |
+| `CASE_SENSITIVE_LOOKUP`                                                                                                                                                                              | A CS lookup compares case-sensitively                                               |
+| `LIKE_MATCHES_ANYWHERE`                                                                                                                                                                              | A `like` filter without a check reads back as `'%value%'`                           |
 
 All codes are exported as constants and in `MESSAGE_CODES`.
 
