@@ -230,9 +230,10 @@ describe('WSProxy specifics', () => {
         assert.match(code, /DataExtensionObject\[Customers\]/);
     });
 
-    it('without WHERE calls retrieve with a null filter', () => {
+    it('without WHERE calls retrieve without a filter, the next batches with a null one', () => {
         const { code } = emitSsjsWsproxy(ast(FIELDS));
-        assert.match(code, /api\.retrieve\(objectType, cols, null\);/);
+        assert.match(code, /var result = api\.retrieve\(objectType, cols\);/);
+        assert.match(code, /api\.retrieve\(objectType, cols, null, null, props\);/);
         assert.doesNotMatch(code, /var filter/);
     });
 
@@ -249,51 +250,34 @@ describe('WSProxy specifics', () => {
         );
     });
 
-    it('rowsAsObjects (default) and paging flags', () => {
+    it('always reads every batch; rowsAsObjects (default) adds toObject', () => {
         const tree = ast(`${FIELDS} WHERE Country = 'DE'`);
-        const plain = emitSsjsWsproxy(tree).code;
-        assert.match(plain, /function toObject\(item\)/);
-        assert.match(plain, /rows\.push\(toObject\(result\.Results\[i\]\)\);/);
-        assert.doesNotMatch(plain, /getNextBatch|ContinueRequest/);
-        const paged = emitSsjsWsproxy(tree, { output: { paging: true, rowsAsObjects: false } });
-        assertValidSsjs(paged.code);
-        assert.doesNotMatch(paged.code, /toObject/);
-        assert.doesNotMatch(paged.code, /getNextBatch|hasMoreRows/);
-        assert.match(paged.code, /var props = \{\};\n/);
+        const result = emitSsjsWsproxy(tree);
+        assert.deepEqual(result.messages, []);
+        assert.match(result.code, /function toObject\(item\)/);
+        assert.match(result.code, /rows\.push\(toObject\(result\.Results\[i\]\)\);/);
+        assert.doesNotMatch(result.code, /hasMoreRows|paging/);
+        assert.match(result.code, /var props = \{\};\n/);
         assert.match(
-            paged.code,
+            result.code,
             /props\.ContinueRequest = result\.RequestID;\n\s+result = api\.retrieve\(objectType, cols, filter, null, props\);/,
         );
-        assert.match(paged.code, /rows\.push\(result\.Results\[i\]\);/);
-        const pagedAll = emitSsjsWsproxy(ast(FIELDS), { output: { paging: true } });
-        assertValidSsjs(pagedAll.code);
-        assert.match(pagedAll.code, /api\.retrieve\(objectType, cols, null, null, props\);/);
+        const raw = emitSsjsWsproxy(tree, { output: { rowsAsObjects: false } });
+        assertValidSsjs(raw.code);
+        assert.doesNotMatch(raw.code, /toObject|Helper functions/);
+        assert.match(raw.code, /rows\.push\(result\.Results\[i\]\);/);
     });
 
-    it('without paging flags more rows in hasMoreRows with a hint', () => {
-        const { code } = emitSsjsWsproxy(ast(`${FIELDS} WHERE Country = 'DE'`));
-        assertValidSsjs(code);
-        assert.match(code, /var hasMoreRows = false;\n/);
-        assert.match(
-            code,
-            /if \(result\.HasMoreRows\) \{\n {4}\/\/ [^\n]*paging[^\n]*\n {4}hasMoreRows = true;\n\}\n/,
-        );
+    it('ignores an old paging option', () => {
+        const tree = ast(`${FIELDS} WHERE Country = 'DE'`);
+        for (const paging of [true, false]) {
+            const result = emitSsjsWsproxy(tree, { output: { paging } });
+            assert.equal(result.code, emitSsjsWsproxy(tree).code);
+            assert.deepEqual(result.messages, []);
+        }
     });
 
-    it('without paging adds FIRST_BATCH_ONLY at the FROM name, with paging not', () => {
-        const sql = `${FIELDS} WHERE Country = 'DE'`;
-        const single = emitSsjsWsproxy(ast(sql)).messages;
-        assert.deepEqual(
-            single.map((message) => [message.severity, message.code]),
-            [['info', 'FIRST_BATCH_ONLY']],
-        );
-        assert.match(single[0].message, /first batch of up to 2,500 rows/);
-        assert.equal(sql.slice(single[0].column - 1, single[0].endColumn - 1), '[Customers]');
-        const paged = emitSsjsWsproxy(ast(sql), { output: { paging: true } }).messages;
-        assert.deepEqual(paged, []);
-    });
-
-    it('without WHERE and without paging reads back from the null filter', () => {
+    it('without WHERE reads back without a filter', () => {
         const { code } = emitSsjsWsproxy(ast(FIELDS));
         const back = parseSsjs(code);
         assert.equal(back.ast.where, null);
@@ -304,16 +288,13 @@ describe('WSProxy specifics', () => {
         const sql = `SELECT TOP 5 SubscriberKey FROM Customers WHERE Country = 'DE' ORDER BY Points DESC, Email`;
         const result = emitSsjsWsproxy(ast(sql), { sourceText: sql });
         assertValidSsjs(result.code);
-        assert.deepEqual(
-            result.messages.map((message) => [message.severity, message.code]),
-            [['info', 'FIRST_BATCH_ONLY']],
-        );
+        assert.deepEqual(result.messages, []);
         assert.deepEqual(result.dropped, []);
         assert.match(result.code, /var cols = \["SubscriberKey", "Points", "Email"\];/);
         assert.match(result.code, /\/\/ SQL: SELECT SubscriberKey\n/);
         assert.match(
             result.code,
-            /rows = orderRows\(rows, \[\["Points", "DESC"\], \["Email", "ASC"\]\], 5\);\n<\/script>$/,
+            /rows = orderRows\(rows, \[\["Points", "DESC"\], \["Email", "ASC"\]\], 5\);\n\n\/\/ Helper functions/,
         );
         const texts = Object.fromEntries(
             result.spans.map((span) => [span.clauseId, result.code.slice(span.start, span.end)]),
@@ -617,4 +598,30 @@ describe('target registry', () => {
         );
         assert.ok(Object.isFrozen(MCE_TARGETS));
     });
+});
+
+describe('SSJS helper functions come after the code that runs', () => {
+    const sql =
+        "SELECT TOP 3 SubscriberKey FROM Customers WHERE Country = 'DE' AND Email LIKE '%@x.com' ORDER BY Points DESC";
+    const outputs = {
+        wsproxy: emitSsjsWsproxy(ast(sql), { sourceText: sql }),
+        rowsRetrieve: emitSsjsRowsRetrieve(ast(sql), { sourceText: sql }),
+        lookupRows: emitSsjsLookupRows(ast("SELECT A FROM D WHERE B = '1' ORDER BY A"), {}),
+    };
+    for (const [name, result] of Object.entries(outputs)) {
+        it(`${name}: no function before the helpers comment, none of the code after it`, () => {
+            const { code } = result;
+            assertValidSsjs(code);
+            const separator = code.indexOf('\n// Helper functions');
+            assert.ok(separator > 0, 'has the helpers comment');
+            assert.doesNotMatch(code.slice(0, separator), /\bfunction \w+\(/);
+            const helpers = code.slice(separator, code.lastIndexOf('</script>'));
+            // after the comment only function declarations and their bodies follow
+            assert.match(
+                helpers,
+                /^\n\/\/ Helper functions[^\n]*\n(function \w+\([^)]*\) \{\n(?: {4}[^\n]*\n|\n)*\}\n)+$/,
+            );
+            assert.doesNotMatch(helpers, /SQL:/);
+        });
+    }
 });

@@ -285,7 +285,7 @@ describe('anchored LIKE: wider like filter plus exact check', () => {
                 assert.equal(output.roundTrip.sql, printSql(ast(sql)));
             });
         }
-        for (const options of [{ paging: true }, { rowsAsObjects: false }]) {
+        for (const options of [{}, { rowsAsObjects: false }]) {
             it(`ssjs-wsproxy ${JSON.stringify(options)}: ${sqlString(pattern)} round trip`, () => {
                 const output = convert(sql, { deKey: 'X', output: options }).outputs[0];
                 assert.equal(output.roundTrip.ok, true, output.roundTrip.note);
@@ -306,9 +306,7 @@ describe('anchored LIKE: wider like filter plus exact check', () => {
     });
 
     it('a %x% pattern stays a plain filter without helper', () => {
-        const { code, messages } = emitSsjsWsproxy(ast("SELECT A FROM X WHERE B LIKE '%x%'"), {
-            output: { paging: true },
-        });
+        const { code, messages } = emitSsjsWsproxy(ast("SELECT A FROM X WHERE B LIKE '%x%'"), {});
         assert.doesNotMatch(code, /sqlLike/);
         assert.deepEqual(messages, []);
     });
@@ -366,7 +364,7 @@ describe('anchored LIKE: wider like filter plus exact check', () => {
                 DataExtension: { Init: () => ({ Rows: { Retrieve: likeFilterRows } }) },
             });
             assert.deepEqual(sorted(rowsRetrieve.rows.map((row) => row.SubscriberKey)), expected);
-            for (const output of [{}, { paging: true }, { rowsAsObjects: false }]) {
+            for (const output of [{}, { rowsAsObjects: false }]) {
                 const ws = runSsjs(emitSsjsWsproxy(tree, { output }).code, {
                     Script: wsproxyStub((filter, cols) => [
                         {
@@ -502,9 +500,7 @@ describe('empty string values are sent as a single space', () => {
     });
 
     it('IS NULL keeps its empty Value and no message', () => {
-        const { code, messages } = emitSsjsWsproxy(ast('SELECT A FROM X WHERE A IS NULL'), {
-            output: { paging: true },
-        });
+        const { code, messages } = emitSsjsWsproxy(ast('SELECT A FROM X WHERE A IS NULL'), {});
         assert.match(code, /Value: ""/);
         assert.deepEqual(messages, []);
     });
@@ -523,16 +519,16 @@ describe('WSProxy status check', () => {
         assert.equal(ws.retrieveError, error);
     });
 
-    it('paging: a failing later batch empties rows', () => {
-        const ws = runSsjs(emitSsjsWsproxy(ast(sql), { output: { paging: true } }).code, {
+    it('a failing later batch empties rows', () => {
+        const ws = runSsjs(emitSsjsWsproxy(ast(sql)).code, {
             Script: wsproxyStub((filter, cols) => [ok(cols), { Status: error, Results: [] }]),
         });
         assert.deepEqual(ws.rows, []);
         assert.equal(ws.retrieveError, error);
     });
 
-    it('paging: reads every batch when all succeed', () => {
-        const ws = runSsjs(emitSsjsWsproxy(ast(sql), { output: { paging: true } }).code, {
+    it('reads every batch when all succeed', () => {
+        const ws = runSsjs(emitSsjsWsproxy(ast(sql)).code, {
             Script: wsproxyStub((filter, cols) => [
                 ok(cols),
                 { Status: 'OK', HasMoreRows: false, Results: [toItem(fixture.rows[3], cols)] },

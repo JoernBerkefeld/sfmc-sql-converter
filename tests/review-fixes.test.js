@@ -393,15 +393,15 @@ describe('AMPscript blocks and %%', () => {
     });
 });
 
-describe('WSProxy paging forms read back', () => {
+describe('WSProxy batch reads read back', () => {
     const sql = "SELECT A, B FROM D WHERE B = '1'";
 
-    it('ContinueRequest paging reads back as one lookup', () => {
-        const { code } = emitSsjsWsproxy(ast(sql), { output: { paging: true } });
+    it('the ContinueRequest batch loop reads back as one lookup', () => {
+        const { code } = emitSsjsWsproxy(ast(sql));
         const back = parseSsjs(code);
         assert.ok(back.ast);
         assert.deepEqual(back.messages, []);
-        assert.equal(convert(sql, { deKey: 'D', output: { paging: true } }).roundTrip.ok, true);
+        assert.equal(convert(sql, { deKey: 'D' }).roundTrip.ok, true);
     });
 
     it('the older getNextBatch form still reads back', () => {

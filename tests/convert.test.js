@@ -40,11 +40,7 @@ describe('convert() contract — toCode, Engagement', () => {
     it('keeps target messages on the output and parse messages on top', () => {
         assert.deepEqual(result.messages, []);
         const wsproxy = result.outputs[0];
-        assert.deepEqual(
-            wsproxy.messages.map((message) => message.code),
-            ['FIRST_BATCH_ONLY'],
-        );
-        assert.match(wsproxy.messages[0].message, /Sorting and TOP apply to that batch only/);
+        assert.deepEqual(wsproxy.messages, []);
         assert.deepEqual(wsproxy.dropped, []);
         const ordered = result.outputs.find((output) => output.id === 'ssjs-lookuporderedrows');
         assert.deepEqual(ordered.messages, []);
@@ -100,10 +96,10 @@ describe('convert() contract — toCode, Engagement', () => {
         const star = convert("SELECT * FROM X WHERE A = '1'", {
             deKey: 'X',
             columns: ['A', 'B'],
-            output: { paging: true },
+            output: { rowsAsObjects: false },
         });
         assert.match(star.outputs[0].code, /var cols = \["A", "B"\];/);
-        assert.match(star.outputs[0].code, /props\.ContinueRequest = result\.RequestID;/);
+        assert.doesNotMatch(star.outputs[0].code, /toObject/);
         const schema = convert('SELECT * FROM X', { schema: { fields: [{ name: 'Z' }] } });
         assert.match(schema.outputs[0].code, /var cols = \["Z"\];/);
         const bare = convert('SELECT  * FROM X', { deKey: 'X' });
