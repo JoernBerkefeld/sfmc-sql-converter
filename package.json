@@ -1,6 +1,6 @@
 {
     "name": "sfmc-sql-converter",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Converts SQL SELECT queries to Salesforce Marketing Cloud lookup code (SSJS, AMPscript) and back",
     "type": "module",
     "main": "src/index.js",
